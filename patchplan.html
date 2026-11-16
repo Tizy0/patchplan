@@ -254,6 +254,11 @@ body.viewmode .bg-ctl{display:none}
 .bg-row.missing{border-color:var(--warn)}
 #stBuild{pointer-events:auto;cursor:pointer}
 #status #stOnline{color:var(--text);border-color:var(--accent)}
+#status #stPeople{pointer-events:auto;cursor:pointer;color:var(--text)}
+#status #stPeople i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+#status #stPeople em{color:var(--warn);font-style:normal}
+#L-peers{pointer-events:none}
+#L-peers text{font-family:var(--ui-font,system-ui,sans-serif)}
 #status #stOnline.warn{color:var(--warn);border-color:var(--warn)}
 .help-tabs{display:inline-flex;margin:0 0 12px}
 /* dialogs (online projects) */
@@ -529,6 +534,7 @@ body.viewmode .edit-only{display:none!important}
         <button data-cmd="online-share" class="on-only">☁ Share link…</button>
         <button data-cmd="online-pass" class="edit-only on-only" title="Set a new password; everyone else must type it again">☁ Change project password…</button>
         <button data-cmd="online-leave" class="on-only" title="Stop syncing; keep working on a local copy">Work offline (local copy)</button>
+        <button data-cmd="online-delete" class="edit-only on-only" title="Remove this project from the server for everyone (asks for the password)">🗑 Delete online project…</button>
         <hr>
         <button data-cmd="png">Export PNG image</button>
         <button data-cmd="svg">Export SVG drawing</button>
@@ -565,11 +571,12 @@ body.viewmode .edit-only{display:none!important}
           <g id="L-devices"></g>
           <g id="L-texts"></g>
           <g id="L-labels"></g>
+          <g id="L-peers"></g>
           <g id="L-overlay"></g>
           <g id="L-bgctl"></g>
         </g>
       </svg>
-      <div id="status"><span id="stBuild" title="Build number — click for the build history"></span><span id="stOnline" hidden></span><span id="stZoom">100%</span><span id="stCount"></span><span id="stMode" hidden></span></div>
+      <div id="status"><span id="stBuild" title="Build number — click for the build history"></span><span id="stOnline" hidden></span><span id="stPeople" hidden></span><span id="stZoom">100%</span><span id="stCount"></span><span id="stMode" hidden></span></div>
       <div id="legend"></div>
       <div id="toast"></div>
       <div id="quick" class="quick" hidden></div>
@@ -636,7 +643,7 @@ body.viewmode .edit-only{display:none!important}
         <li>Colleagues open the .json with this same editor (file or web link).</li>
         <li><b>Save view-only copy</b> opens locked; <b>👁 View only</b> locks your own screen.</li>
         <li>Export PNG / SVG, or <b>Print / PDF</b> (drawing, legend, equipment list, cable totals, cable list).</li>
-        <li><b>Online:</b> File › <b>Put this project online</b>, choose a password, send the link and (separately) the password. Everyone with both works on the same plan; changes save by themselves (☁ at the top).</li></ul></section>
+        <li><b>Online:</b> File › <b>Put this project online</b>, choose a password, send the link and (separately) the password. Everyone with both works on the same plan at the same time; changes save by themselves and appear for the others in about a second. The bottom bar shows who is online; what they select is outlined in their colour.</li></ul></section>
       <section><h4>8 · Which version am I on?</h4><ul>
         <li>The <b>build number</b> is at the bottom-left of the canvas and saved in every file.</li>
         <li><b>What’s new</b> (tab above) lists every build and what it added.</li>
@@ -707,9 +714,15 @@ body.viewmode .edit-only{display:none!important}
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 /* ----- Build number: bump on every new build so everyone knows which version they run ----- */
-const BUILD = { n: 21, date: '2026-11-16' };
+const BUILD = { n: 22, date: '2026-11-16' };
 /* [build, one-line summary, details, date] — add a new entry at the top for every build */
 const BUILD_NOTES = [
+  [22, 'Live editing together', [
+    'Online projects are live: other people’s changes appear in about a second (a live connection; it reconnects by itself and catches up after a drop).',
+    'Who is online: the bottom bar lists everyone in the project with their colour; click it to change your name. You are asked for your name when you open a project.',
+    'What the others have selected is outlined on the plan in their colour, with their name.',
+    'Undo only takes back your own changes — never something another person changed after you.',
+    'File › Delete online project (asks for the password; everyone is told; you keep a local copy).'], '2026-11-16'],
   [21, 'Online projects with a password', [
     'File › Put this project online: choose a password; you get a link to share. Everyone who opens the link and types the password works on the same project.',
     'Changes are saved online automatically (status at the top: ☁ saved online) and other people’s changes appear within a few seconds.',
@@ -1899,6 +1912,7 @@ function render() {
   renderTable();
   renderLayers();
   updateStatus();
+  renderPeers();
 }
 /* ----- Background images: drawn under everything; elements are reused so a big image is not re-decoded on every redraw ----- */
 const bgList = () => Object.values(Store.doc.backgrounds || {}).sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -4310,7 +4324,8 @@ const FILE_TYPES = [{ description: 'Patch plan project', accept: { 'application/
 const FileLink = { handle: null, dirty: false, savedAt: null };
 /* Online project state (see section ONLINE PROJECTS) */
 const Online = { id: null, name: '', token: '', ver: 0, client: 'c' + Math.random().toString(36).slice(2, 10), pending: new Map(), inflight: new Set(), mine: new Map(),
-  pushT: 0, pollT: 0, busy: false, pulling: false, state: 'off', err: '', loading: false, savedAt: '' };
+  pushT: 0, pollT: 0, busy: false, pulling: false, state: 'off', err: '', loading: false, savedAt: '',
+  ws: null, live: false, people: [], retry: 0, retryT: 0, selSent: '', needPull: false, tick: 0, deleting: null };
 const kv = {
   db: null,
   open() { return this.db || (this.db = new Promise((res, rej) => { const r = indexedDB.open('patchplan', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); },
@@ -4328,7 +4343,7 @@ function updateSaveState() {
   el.classList.toggle('online', !!Online.id); el.classList.toggle('warn', Online.state === 'offline' || Online.state === 'auth');
   if (Online.id) {
     const n = Online.name || Online.id;
-    el.textContent = Online.state === 'saving' ? `☁ ${n} · saving…` : Online.state === 'offline' ? `⚠ ${n} · offline — changes kept, retrying` : Online.state === 'auth' ? `🔒 ${n} · password needed` : `☁ ${n} · saved online${Online.savedAt ? ' ' + Online.savedAt : ''}`;
+    el.textContent = Online.state === 'saving' ? `☁ ${n} · saving…` : Online.state === 'offline' ? `⚠ ${n} · offline — changes kept, retrying` : Online.state === 'auth' ? `🔒 ${n} · password needed` : `☁ ${n} · saved online${Online.savedAt ? ' ' + Online.savedAt : ''}${Online.live ? ' · live' : ''}`;
     el.title = Online.state === 'offline' ? Online.err : `Online project — everyone with the link and password works on it. File › Share link / Work offline.`;
     const st = $('#stOnline'); st.hidden = false; st.textContent = el.textContent; st.title = el.title; st.classList.toggle('warn', el.classList.contains('warn'));
     return;
@@ -4572,7 +4587,7 @@ $('#btnView').onclick = () => { setViewMode(!UI.viewMode); toast(UI.viewMode ? '
 /* File menu */
 const FILE_CMDS = {
   new: () => { if (confirm('Start a new empty project? (The current one stays in autosave until you change something.)')) { Store.load(newDoc()); setFileLink(null); setChain(null); setSelection([]); UI.view = { x: 60, y: 60, k: 1 }; applyView(); } },
-  'online-put': () => onlinePutDialog(), 'online-open': () => onlineOpenDialog(), 'online-share': () => onlineShareDialog(), 'online-pass': () => onlinePassDialog(), 'online-leave': () => onlineLeave(),
+  'online-put': () => onlinePutDialog(), 'online-open': () => onlineOpenDialog(), 'online-share': () => onlineShareDialog(), 'online-pass': () => onlinePassDialog(), 'online-leave': () => onlineLeave(), 'online-delete': () => onlineDeleteDialog(),
   open: openFileDialog, bg: () => { if (!UI.viewMode) $('#bgFile').click(); }, save: () => saveProject(), 'save-as': () => saveProject({ saveAs: true }), 'save-view': () => saveJSON(true), png: exportPNG, svg: exportSVG, print: printLayout,
   'csv-cables': () => exportCSV('cables'), 'csv-ports': () => exportCSV('ports'),
 };
@@ -4854,17 +4869,18 @@ async function onlineOpen(id, token, { remember = true } = {}) {
   FileLink.handle = null; FileLink.dirty = false;
   history.replaceState(null, '', location.pathname + location.search + '#p=' + id);
   setChain(null); setSelection([]); requestAnimationFrame(zoomToFit);
-  clearInterval(Online.pollT); Online.pollT = setInterval(() => { if (!document.hidden) onlinePull(); }, 4000);
-  updateSaveState();
+  clearInterval(Online.pollT); Online.pollT = setInterval(onlineTick, 1000);
+  liveClose(); Online.retry = 0; liveConnect();
+  updateSaveState(); renderPeople();
   toast(`Online project “${r.name}” — changes are saved for everyone with the password`, '', 3500);
 }
 function onlineLeave(silent) {
   if (!Online.id) return;
-  clearInterval(Online.pollT); clearTimeout(Online.pushT);
+  clearInterval(Online.pollT); clearTimeout(Online.pushT); liveClose();
   const n = Online.name;
   Object.assign(Online, { id: null, token: '', name: '', state: 'off', err: '' }); Online.pending.clear();
   history.replaceState(null, '', location.pathname + location.search);
-  updateSaveState();
+  updateSaveState(); renderPeople(); renderPeers();
   if (!silent) toast(`Left “${n}” — you are working on a local copy now (the online project is unchanged)`, '', 3500);
 }
 /* ----- sending and receiving changes ----- */
@@ -4875,7 +4891,7 @@ Store.on(ev => {
   for (const c of ev.changes || []) Online.pending.set(okey(c.coll, c.id), { coll: c.coll, id: c.id });
   if (!Online.pending.size) return;
   if (Online.state === 'ok') Online.state = 'saving';
-  clearTimeout(Online.pushT); Online.pushT = setTimeout(onlinePush, 600);
+  clearTimeout(Online.pushT); Online.pushT = setTimeout(onlinePush, 250);
   updateSaveState();
 });
 async function onlinePush() {
@@ -4898,15 +4914,28 @@ async function onlinePush() {
     if (Online.id && Online.pending.size && Online.state !== 'auth') { clearTimeout(Online.pushT); Online.pushT = setTimeout(onlinePush, Online.state === 'offline' ? 5000 : 300); }
   }
 }
+/** Apply other people's changes: skip my own echoes and items I am about to send (my newer edit wins).
+    Items someone else changed are removed from my undo history, so undo never overwrites their work. */
+function applyRemoteChanges(list) {
+  const take = list.filter(c => { const k = okey(c.coll, c.id); return c.by !== Online.client && !Online.pending.has(k) && !Online.inflight.has(k) && !((Online.mine.get(k) || 0) > c.ver); });
+  if (!take.length) return 0;
+  const keys = new Set(take.map(c => okey(c.coll, c.id)));
+  for (const st of [Store.undoStack, Store.redoStack]) for (let i = st.length - 1; i >= 0; i--) {
+    st[i].changes = st[i].changes.filter(c => !keys.has(okey(c.coll, c.id))); if (!st[i].changes.length) st.splice(i, 1);
+  }
+  Store.applyRemote(take.map(c => ({ coll: c.coll, id: c.id, after: c.after })));
+  if (!UI.sel.size) renderInspector();
+  return take.length;
+}
 async function onlinePull() {
-  if (!Online.id || Online.pulling || Online.state === 'auth' || UI.drag) return;
+  if (!Online.id || Online.pulling || Online.state === 'auth') return;
+  if (UI.drag) { Online.needPull = true; return; }
   Online.pulling = true;
   try {
     const r = await api(Online.id, 'changes?since=' + Online.ver, { token: Online.token });
-    // skip my own echoes and items I am about to send (my newer edit wins)
-    const take = r.changes.filter(c => { const k = okey(c.coll, c.id); return c.by !== Online.client && !Online.pending.has(k) && !Online.inflight.has(k) && !((Online.mine.get(k) || 0) > c.ver); });
+    if (UI.drag) { Online.needPull = true; return; }
+    applyRemoteChanges(r.changes);
     Online.ver = Math.max(Online.ver, r.ver);
-    if (take.length) { Store.applyRemote(take.map(c => ({ coll: c.coll, id: c.id, after: c.after }))); if (!UI.sel.size) renderInspector(); }
     if (Online.state === 'offline') { Online.state = Online.pending.size ? 'saving' : 'ok'; Online.err = ''; if (Online.pending.size) onlinePush(); }
     updateSaveState();
   } catch (e) { onlineError(e); }
@@ -4914,10 +4943,118 @@ async function onlinePull() {
 }
 function onlineError(e) {
   if (e.auth) { Online.state = 'auth'; Online.err = 'Password needed'; updateSaveState(); const id = Online.id; saveCreds(id, { ...(onlineCreds()[id] || {}), token: '' }); askProjectPassword(id, { again: true }); return; }
-  if (e.status === 404) { const n = Online.name; onlineLeave(true); toast(`The online project “${n}” no longer exists — you keep a local copy`, 'err', 6000); return; }
+  if (e.status === 404) { if (Online.deleting === Online.id) return; const n = Online.name; onlineLeave(true); toast(`The online project “${n}” no longer exists — you keep a local copy`, 'err', 6000); return; }
   Online.state = 'offline'; Online.err = e.message; updateSaveState();
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && Online.id) onlinePull(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Online.id) { onlinePull(); if (!Online.ws) { Online.retry = 0; liveConnect(); } } });
+/** Every second: fetch when the live connection said so (or every 4 s without it, every 30 s as a safety net). */
+function onlineTick() {
+  if (!Online.id || document.hidden) return;
+  Online.tick++;
+  if ((Online.needPull && !UI.drag) || (!Online.live && Online.tick % 4 === 0) || Online.tick % 30 === 0) { Online.needPull = false; onlinePull(); }
+  sendSel();
+}
+/* ----- live connection (WebSocket to the project room) ----- */
+const PEER_COLORS = ['#e5484d', '#2f80ed', '#27ae60', '#d18a00', '#9b51e0', '#f2711c', '#00a3a3', '#d6409f', '#5b6ee1', '#6a8a00'];
+function myName() { try { return localStorage.getItem('patchplan.myname') || ''; } catch { return ''; } }
+function myColor(name = myName() || Online.client) { let h = 7; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return PEER_COLORS[h % PEER_COLORS.length]; }
+function setMyName(n) {
+  n = String(n || '').trim().slice(0, 40); if (!n) return;
+  try { localStorage.setItem('patchplan.myname', n); } catch {}
+  if (Online.ws?.readyState === 1) Online.ws.send(JSON.stringify({ type: 'name', name: n, color: myColor(n) }));
+  renderPeople();
+}
+const nameField = () => `<label>Your name (the others see it)<input name="me" maxlength="40" value="${esc(myName())}" placeholder="e.g. Tiziano"></label>`;
+function liveConnect() {
+  if (!Online.id || Online.ws || Online.state === 'auth' || typeof WebSocket === 'undefined') return;
+  const id = Online.id; let ws;
+  try { ws = new WebSocket(API_BASE.replace(/^http/, 'ws') + `/api/p/${id}/live`); } catch { liveRetry(); return; }
+  Online.ws = ws;
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', token: Online.token, client: Online.client, name: myName() || 'Guest', color: myColor() }));
+  ws.onmessage = e => { if (e.data === 'pong') return; let m; try { m = JSON.parse(e.data); } catch { return; } liveMsg(m); };
+  ws.onclose = e => {
+    if (Online.ws !== ws) return;
+    Online.ws = null; Online.live = false; Online.people = []; renderPeople(); renderPeers(); updateSaveState();
+    if (Online.id !== id) return;
+    if (e.code === 4001) onlineError(Object.assign(new Error('Password needed'), { auth: true }));
+    else if (e.code === 4004) onlineError(Object.assign(new Error('Deleted'), { status: 404 }));
+    else liveRetry();
+  };
+}
+function liveRetry() { clearTimeout(Online.retryT); if (!Online.id) return; Online.retryT = setTimeout(liveConnect, Math.min(30000, 1000 * 2 ** Math.min(5, Online.retry++))); }
+function liveClose() {
+  clearTimeout(Online.retryT); const ws = Online.ws;
+  Object.assign(Online, { ws: null, live: false, people: [], selSent: '' });
+  if (ws) try { ws.close(1000); } catch {}
+}
+setInterval(() => { if (Online.ws?.readyState === 1) try { Online.ws.send('ping'); } catch {} }, 30000);
+function liveMsg(m) {
+  if (m.type === 'welcome') {
+    Online.live = true; Online.retry = 0; Online.people = m.people || []; Online.selSent = '';
+    if (m.ver !== Online.ver) Online.needPull = true;
+    onlineTick(); renderPeople(); renderPeers(); updateSaveState(); return;
+  }
+  if (m.type === 'changes' || m.type === 'poke') {
+    if (m.by === Online.client) { if (m.base === Online.ver) Online.ver = m.ver; else Online.needPull = true; return; }
+    if (m.type === 'poke' || UI.drag || m.base !== Online.ver) { Online.needPull = true; if (!UI.drag) onlineTick(); return; }
+    applyRemoteChanges(m.changes); Online.ver = m.ver; return;
+  }
+  if (m.type === 'presence') {
+    Online.people = m.people || [];
+    if (m.joined && m.joined !== myName()) toast(`${m.joined} joined the project`, '', 2200);
+    if (m.left) toast(`${m.left} left the project`, '', 2200);
+    renderPeople(); renderPeers(); return;
+  }
+  if (m.type === 'sel') { const p = Online.people.find(q => q.client === m.client); if (p) { p.sel = m.ids || []; renderPeers(); } }
+}
+function sendSel() {
+  if (!Online.live || Online.ws?.readyState !== 1) return;
+  const ids = [...UI.sel].filter(id => Store.doc.devices[id] || Store.doc.annotations[id]).slice(0, 300), s = ids.join(',');
+  if (s === Online.selSent) return;
+  Online.selSent = s; try { Online.ws.send(JSON.stringify({ type: 'sel', ids })); } catch {}
+}
+/** Bottom bar: who is in the project right now. */
+function renderPeople() {
+  const el = $('#stPeople'); if (!el) return;
+  if (!Online.id) { el.hidden = true; return; }
+  const others = Online.people.filter(p => p.client !== Online.client);
+  el.hidden = false;
+  el.innerHTML = `<i style="background:${myColor()}"></i>${esc(myName() || 'You')} (you)` + others.map(p => ` · <i style="background:${esc(p.color)}"></i>${esc(p.name)}`).join('') + (Online.live ? '' : ' · <em>connecting…</em>');
+  el.title = `${others.length ? others.length + ' other' + (others.length === 1 ? '' : 's') + ' in this project now' : 'Nobody else is in this project right now'} — click to change your name`;
+}
+/** Outline what the others have selected, in their colour, with their name. */
+function renderPeers() {
+  const g = $('#L-peers'); if (!g) return;
+  if (!Online.id || !Online.people.length) { g.innerHTML = ''; return; }
+  let s = '';
+  for (const p of Online.people) {
+    if (p.client === Online.client) continue;
+    const col = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#888888', nm = esc(p.name || 'Guest');
+    (p.sel || []).forEach((id, i) => {
+      const o = Store.doc.devices[id] || Store.doc.annotations[id]; if (!o || isHiddenItem(o)) return;
+      const b = itemBounds(o);
+      s += `<rect x="${b.x - 7}" y="${b.y - 7}" width="${b.w + 14}" height="${b.h + 14}" rx="9" fill="none" stroke="${col}" stroke-width="2.5" stroke-dasharray="8 4" opacity=".9"/>`;
+      if (i < 3) s += `<g transform="translate(${b.x - 7},${b.y - 26})"><rect width="${(p.name || 'Guest').length * 6.6 + 14}" height="17" rx="4" fill="${col}"/><text x="7" y="12.5" font-size="11" font-weight="600" fill="#fff">${nm}</text></g>`;
+    });
+  }
+  g.innerHTML = s;
+}
+$('#stPeople').addEventListener('click', () => dialog({ title: 'Your name', ok: 'Save', body: nameField() + '<p class="hint">Shown to the other people in online projects, next to what you select.</p>', onOk: v => { setMyName(v.me || 'Guest'); return true; } }));
+async function onlineDeleteDialog() {
+  if (!Online.id || UI.viewMode) return;
+  const id = Online.id, name = Online.name;
+  await dialog({ title: '🗑 Delete online project', ok: 'Delete for everyone',
+    body: `<p>This removes <b>${esc(name)}</b> from the server for <b>everyone</b>; people who have it open are told. You keep a local copy on this computer (File › Save as… to keep it as a file).</p>
+      <label>Type the project password to confirm<input type="password" name="pw" required autocomplete="current-password"></label>`,
+    onOk: async v => {
+      Online.deleting = id;
+      try { await api(id, 'delete', { method: 'POST', body: { password: v.pw } }); }
+      catch (e) { Online.deleting = null; throw e; }
+      saveCreds(id, null); onlineLeave(true); Online.deleting = null;
+      toast(`“${name}” was deleted online — you keep a local copy`, '', 4000);
+      return true;
+    } });
+}
 window.addEventListener('beforeunload', e => { if (Online.id && (Online.pending.size || Online.busy)) { onlinePush(); e.preventDefault(); e.returnValue = ''; } });
 /* ----- dialogs ----- */
 function pwFields(label = 'Password') {
@@ -4931,9 +5068,11 @@ async function onlinePutDialog() {
     body: `<p class="hint">The project is stored online. Everyone who has the <b>link</b> and the <b>password</b> can open it and work on it with you — no account needed.</p>
       <label>Project name<input name="name" required maxlength="120" value="${esc(Store.main.name)}"></label>
       ${pwFields('Project password')}
+      ${nameField()}
       <p class="hint">Send the password separately from the link (message, phone). You can change it later.</p>`,
     onOk: async v => {
       checkPw(v);
+      setMyName(v.me || myName() || 'Guest');
       const name = v.name.trim() || 'Untitled show';
       if (name !== Store.main.name) Store.transact('Rename project', () => Store.update('meta', 'main', { name }));
       let id, r;
@@ -4990,8 +5129,10 @@ async function askProjectPassword(id, { again } = {}) {
   await dialog({ title: '🔒 ' + (info.name || 'Online project'), ok: 'Open',
     body: `<p class="hint">${again ? 'The project password was changed or your session ended — type the password again.' : 'This patch plan is protected. Type the project password to open it.'}</p>
       <label>Project password<input type="password" name="pw" required autocomplete="current-password"></label>
+      ${again && myName() ? '' : nameField()}
       <label class="chk"><input type="checkbox" name="remember" checked> Remember on this computer</label>`,
     onOk: async v => {
+      if (v.me != null) setMyName(v.me || myName() || 'Guest');
       let r;
       try { r = await api(id, 'login', { method: 'POST', body: { password: v.pw } }); }
       catch (e) { throw new Error(e.message); }
@@ -5005,7 +5146,7 @@ async function onlinePassDialog() {
     body: `<p class="hint">Everyone else is signed out and has to type the new password. Tell your team the new one.</p>${pwFields('New password')}`,
     onOk: async v => {
       checkPw(v);
-      const r = await api(Online.id, 'password', { method: 'POST', body: { password: v.pw }, token: Online.token });
+      const r = await api(Online.id, 'password', { method: 'POST', body: { password: v.pw, client: Online.client }, token: Online.token });
       Online.token = r.token; const c = onlineCreds()[Online.id]; if (c?.token) saveCreds(Online.id, { ...c, token: r.token });
       toast('Password changed — tell your team the new one', '', 3000);
       return true;
