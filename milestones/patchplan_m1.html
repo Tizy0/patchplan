@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patch Plan Editor</title>
+<!--
+  PATCH PLAN EDITOR — single-file, no dependencies.
+  Structure of the script (search for the ==== banners):
+    1. UTILITIES
+    2. CONSTANTS & DEVICE PRESETS
+    3. DATA MODEL / STORE   (pure JSON doc + transactional change log; no DOM)
+    4. MODEL OPERATIONS     (all edits go through here -> Store)
+    5. GEOMETRY             (device size, port positions)
+    6. VIEW STATE           (pan/zoom, selection, UI flags — never saved in the doc)
+    7. RENDERER             (doc -> SVG)
+    8. CANVAS INTERACTION   (pointer handling: pan, zoom, select, drag)
+    9. INSPECTOR            (right panel)
+   10. LIBRARY              (left panel)
+   11. KEYBOARD
+   12. INIT
+-->
+<style>
+/* ---------- Theme tokens ---------- */
+:root{
+  --bg:#eef0f3; --panel:#ffffff; --panel2:#f5f6f8; --text:#1c2230; --muted:#687085;
+  --border:#d7dbe2; --accent:#2f6fed; --accent-soft:rgba(47,111,237,.14);
+  --canvas:#fafbfc; --grid:#e7e9ee; --grid2:#d3d8e0;
+  --dev-body:#ffffff; --dev-text:#1c2230; --sel:#2f6fed; --warn:#d98a00; --danger:#d93636; --ok:#1f9d55;
+  --shadow:0 1px 3px rgba(0,0,0,.08);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
+  font:13px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+button{min-height:32px;padding:0 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.icon{padding:0;width:32px}
+button.on{background:var(--accent-soft);border-color:var(--accent)}
+button.danger:hover{border-color:var(--danger);color:var(--danger)}
+input,select,textarea{border:1px solid var(--border);border-radius:5px;background:var(--panel);padding:5px 7px;min-height:30px;min-width:0}
+input[type=color]{padding:2px;width:34px;height:30px;cursor:pointer}
+label>input[type=color]{display:block;margin-top:3px;width:44px;height:34px}
+input[type=checkbox]{width:18px;height:18px;min-height:0}
+textarea{resize:vertical;min-height:56px;width:100%}
+label{display:block;color:var(--muted);font-size:11.5px}
+label>input:not([type=color]):not([type=checkbox]),label>select,label>textarea{display:block;width:100%;margin-top:3px;color:var(--text);font-size:13px}
+
+/* ---------- Layout ---------- */
+#app{display:grid;grid-template-columns:210px 1fr 350px;grid-template-rows:48px 1fr;height:100vh}
+#topbar{grid-column:1/4;display:flex;align-items:center;gap:6px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--border);overflow-x:auto}
+#topbar .brand{font-weight:700;margin-right:6px;white-space:nowrap}
+#topbar .sep{width:1px;height:24px;background:var(--border);margin:0 4px;flex:none}
+#topbar .grow{flex:1}
+#docName{width:180px;font-weight:600}
+#library{background:var(--panel);border-right:1px solid var(--border);overflow:auto;padding:10px}
+#center{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
+#stage{position:relative;flex:1;min-height:0;overflow:hidden}
+#canvas{position:absolute;inset:0;width:100%;height:100%;display:block;background:var(--canvas);touch-action:none;user-select:none;-webkit-user-select:none}
+#canvas.panning,#canvas.panning *{cursor:grab!important}
+#inspector{background:var(--panel);border-left:1px solid var(--border);overflow:auto;padding:12px}
+#status{position:absolute;left:10px;bottom:8px;display:flex;gap:6px;pointer-events:none}
+#status span{background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:11.5px;color:var(--muted);box-shadow:var(--shadow)}
+#toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none;z-index:5}
+#toast div{background:var(--panel);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:6px;padding:7px 12px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-width:520px}
+#toast div.warn{border-left-color:var(--warn)}
+#toast div.err{border-left-color:var(--danger)}
+
+/* ---------- Library ---------- */
+.lib-h{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:6px 2px 8px}
+.lib-item{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:6px 8px;margin-bottom:4px;text-align:left;border-radius:7px;background:var(--panel2);border:1px solid transparent;cursor:grab}
+.lib-item:hover{border-color:var(--accent)}
+.lib-item .sw{width:14px;height:26px;border-radius:3px;flex:none}
+.lib-item small{display:block;color:var(--muted);font-size:11px}
+.lib-item .x{margin-left:auto;opacity:.5;padding:0 4px}
+.lib-item .x:hover{opacity:1;color:var(--danger)}
+
+/* ---------- Inspector ---------- */
+.ins-h{display:flex;align-items:center;gap:6px;margin:2px 0 10px}
+.ins-h h3{margin:0;font-size:14px;flex:1}
+.ins-sec{border-top:1px solid var(--border);padding:10px 0;display:flex;flex-direction:column;gap:8px}
+.ins-sec h4{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);display:flex;align-items:center;gap:6px}
+.row{display:flex;gap:6px;align-items:flex-end}
+.row>*{flex:1;min-width:0}
+.row>.nf{flex:none}
+.hint{color:var(--muted);font-size:12px}
+.port-row{border:1px solid var(--border);border-radius:7px;padding:6px;display:flex;flex-direction:column;gap:5px;background:var(--panel2)}
+.port-row.focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.port-row .l1,.port-row .l2{display:flex;gap:5px;align-items:center}
+.port-row .l1 input[data-pf=label]{flex:1;min-width:70px}
+.port-row select{padding:4px 3px}
+.port-row select[data-pf=dir]{width:68px;flex:none}
+.port-row select[data-pf=type]{width:96px;flex:none}
+.port-row select[data-pf=side]{width:86px;flex:none}
+.port-row .l2 input{flex:1}
+.port-row button{min-height:30px;padding:0 8px}
+.addn{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.addn input{width:52px}
+
+/* ---------- SVG canvas styles ---------- */
+.dev{cursor:move}
+.dev-body{fill:var(--dev-body);stroke-width:2}
+.dev-hl{fill:none;stroke:var(--sel);stroke-width:2.5;display:none}
+.dev.sel .dev-hl{display:block}
+.dev-name{font-size:12px;font-weight:600;pointer-events:none}
+.dev-note{cursor:help}
+.port-label{font-size:10.5px;fill:var(--dev-text);pointer-events:none}
+.port{cursor:crosshair}
+.port-hit{fill:transparent}
+.port:hover .port-hit,.port.focus .port-hit{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+.dev-resize{fill:var(--sel);display:none;cursor:nwse-resize}
+.dev.sel .dev-resize{display:block}
+.marquee{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1;stroke-dasharray:4 3}
+body.viewmode .dev,body.viewmode .port{cursor:default}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <span class="brand">⚡ Patch Plan</span>
+    <input id="docName" title="Project name">
+    <span class="sep"></span>
+    <button id="btnUndo" class="icon" title="Undo (Ctrl+Z)">↶</button>
+    <button id="btnRedo" class="icon" title="Redo (Ctrl+Y)">↷</button>
+    <span class="sep"></span>
+    <button id="btnSnap" title="Snap to grid (G)">Snap</button>
+    <button id="btnFit" title="Zoom to fit (F)">Fit</button>
+    <button id="btnZoomOut" class="icon" title="Zoom out (-)">−</button>
+    <button id="btnZoomIn" class="icon" title="Zoom in (+)">+</button>
+    <span class="grow"></span>
+    <button id="btnNew" title="New empty project">New</button>
+  </header>
+
+  <aside id="library"></aside>
+
+  <main id="center">
+    <div id="stage">
+      <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="gridMinor" patternUnits="userSpaceOnUse" width="20" height="20">
+            <path d="M20 0H0V20" fill="none" stroke="var(--grid)" stroke-width="1"/>
+          </pattern>
+          <pattern id="gridMajor" patternUnits="userSpaceOnUse" width="100" height="100">
+            <path d="M100 0H0V100" fill="none" stroke="var(--grid2)" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect id="gridRectMinor" width="100%" height="100%" fill="url(#gridMinor)"/>
+        <rect id="gridRectMajor" width="100%" height="100%" fill="url(#gridMajor)"/>
+        <g id="world">
+          <g id="L-devices"></g>
+          <g id="L-overlay"></g>
+        </g>
+      </svg>
+      <div id="status"><span id="stZoom">100%</span><span id="stCount"></span><span id="stMode" hidden></span></div>
+      <div id="toast"></div>
+    </div>
+  </main>
+
+  <aside id="inspector"></aside>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   1. UTILITIES
+   ===================================================================== */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const uid = (p = '') => p + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+const clone = o => (o == null ? o : JSON.parse(JSON.stringify(o)));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const trunc = (s, n) => (s.length > n ? s.slice(0, Math.max(1, n - 1)) + '…' : s);
+const snapV = v => Math.round(v / GRID) * GRID;
+/** Black or white text depending on background colour. */
+function textOn(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return '#fff';
+  const n = parseInt(m[1], 16);
+  return (0.299 * (n >> 16 & 255) + 0.587 * (n >> 8 & 255) + 0.114 * (n & 255)) > 150 ? '#111' : '#fff';
+}
+function toast(msg, kind = '', ms = 3200) {
+  const d = document.createElement('div');
+  d.className = kind; d.textContent = msg;
+  $('#toast').appendChild(d);
+  setTimeout(() => d.remove(), ms);
+}
+
+/* =====================================================================
+   2. CONSTANTS & DEVICE PRESETS
+   ===================================================================== */
+const GRID = 20;        // world units per grid cell
+const HEADER = 20;      // device title bar height
+const PITCH = 20;       // distance between ports on one side
+const MIN_W = 100;
+const SIDES = ['left', 'right', 'top', 'bottom'];
+const DIRS = { in: 'In', out: 'Out', bi: 'Bidir' };
+const SIGNAL_KEYS = ['power', 'network', 'dmx', 'video', 'audio', 'other'];
+/* Default legend. Stored in the doc (meta.main.signals) so it is editable per project. */
+const DEFAULT_SIGNALS = {
+  power:   { label: 'Power',                    prefix: 'PWR', color: '#e5484d', width: 4.5, dash: '12 6' },
+  network: { label: 'Network / Art-Net / sACN', prefix: 'NET', color: '#2f80ed', width: 2.5, dash: '' },
+  dmx:     { label: 'DMX',                      prefix: 'DMX', color: '#e0a100', width: 2.5, dash: '' },
+  video:   { label: 'Video',                    prefix: 'VID', color: '#9b51e0', width: 2.5, dash: '' },
+  audio:   { label: 'Audio',                    prefix: 'AUD', color: '#27ae60', width: 2.5, dash: '' },
+  other:   { label: 'Other',                    prefix: 'OTH', color: '#7f8c9a', width: 2,   dash: '' },
+};
+const defaultSide = dir => (dir === 'in' ? 'left' : 'right');
+const P = (label, dir, type, side) => ({ label, dir, type, side });
+const range = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1));
+const BUILTIN_PRESETS = [
+  { name: 'LED Processor', color: '#33415c', w: 180, ports: [P('Power', 'in', 'power'), P('Video In 1', 'in', 'video'), P('Video In 2', 'in', 'video'), P('Ctrl Net', 'bi', 'network', 'left'), ...range(8, i => P('Out ' + i, 'out', 'network'))] },
+  { name: 'LED Matrix Tile', color: '#56606e', w: 140, ports: [P('Power In', 'in', 'power'), P('Data In', 'in', 'network'), P('Power Out', 'out', 'power'), P('Data Out', 'out', 'network')] },
+  { name: 'Media Server', color: '#6d28d9', w: 180, ports: [P('Power', 'in', 'power'), P('Net A', 'bi', 'network', 'left'), P('Net B', 'bi', 'network', 'left'), P('Timecode', 'in', 'audio'), ...range(4, i => P('Video Out ' + i, 'out', 'video')), P('Audio Out', 'out', 'audio')] },
+  { name: 'Network Switch', color: '#1f6feb', w: 200, h: 80, ports: [P('Power', 'in', 'power', 'left'), ...range(8, i => P('P' + i, 'bi', 'network', 'bottom'))] },
+  { name: 'DMX Node', color: '#b7791f', w: 160, ports: [P('Power', 'in', 'power'), P('Net', 'bi', 'network', 'left'), ...range(4, i => P('DMX ' + i, 'out', 'dmx'))] },
+  { name: 'Power Distro', color: '#c53030', w: 170, ports: [P('CEE 63A In', 'in', 'power'), ...range(6, i => P('Out ' + i + ' 16A', 'out', 'power'))] },
+  { name: 'Laptop', color: '#4a5568', w: 150, ports: [P('Power', 'in', 'power'), P('Ethernet', 'bi', 'network'), P('HDMI Out', 'out', 'video'), P('Audio Out', 'out', 'audio')] },
+  { name: 'Lighting Console', color: '#2d3748', w: 180, ports: [P('Power', 'in', 'power'), P('Net A', 'bi', 'network'), P('Net B', 'bi', 'network'), ...range(4, i => P('DMX ' + i, 'out', 'dmx'))] },
+  { name: 'Moving Light', color: '#2f855a', w: 140, ports: [P('Power In', 'in', 'power'), P('DMX In', 'in', 'dmx'), P('Power Thru', 'out', 'power'), P('DMX Thru', 'out', 'dmx')] },
+  { name: 'Projector', color: '#805ad5', w: 150, ports: [P('Power', 'in', 'power'), P('HDMI In', 'in', 'video'), P('SDI In', 'in', 'video'), P('LAN', 'bi', 'network')] },
+  { name: 'Audio Mixer', color: '#2c7a7b', w: 170, ports: [P('Power', 'in', 'power'), P('Dante', 'bi', 'network', 'left'), ...range(4, i => P('Out ' + i, 'out', 'audio'))] },
+];
+
+/* =====================================================================
+   3. DATA MODEL / STORE
+   ---------------------------------------------------------------------
+   The document is plain JSON, organised as collections of entities keyed
+   by id (easy to mirror 1:1 in Firebase/Supabase tables):
+     doc = { schema, meta:{main:{...settings, legend, counters}},
+             layers:{}, devices:{}, cables:{}, annotations:{} }
+     device = { id, name, color, x, y, w, h, notes, layer, ports:[port] }
+     port   = { id, label, dir:'in'|'out'|'bi', type, side, color|null, comment }
+   Every edit runs inside Store.transact(); the store records a change list
+   [{coll, id, before, after}] used for undo/redo and emitted to listeners.
+   A realtime backend can subscribe to those change lists and push remote
+   changes in through Store.applyRemote(changes).
+   ===================================================================== */
+const COLLS = ['meta', 'layers', 'devices', 'cables', 'annotations'];
+function newDoc() {
+  return {
+    schema: 1,
+    meta: { main: { id: 'main', name: 'Untitled show', signals: clone(DEFAULT_SIGNALS), counters: {}, routing: 'orthogonal' } },
+    layers: {}, devices: {}, cables: {}, annotations: {},
+  };
+}
+const Store = {
+  doc: newDoc(),
+  undoStack: [], redoStack: [],
+  listeners: [],
+  _tx: null,
+  on(fn) { this.listeners.push(fn); },
+  emit(ev) { for (const fn of this.listeners) fn(ev); },
+  get main() { return this.doc.meta.main; },
+
+  /** Replace the whole document (load / new). Clears history. */
+  load(doc) {
+    const base = newDoc();
+    for (const c of COLLS) doc[c] = doc[c] || base[c];
+    doc.meta.main = Object.assign(base.meta.main, doc.meta.main);
+    for (const k of SIGNAL_KEYS) doc.meta.main.signals[k] = Object.assign({}, DEFAULT_SIGNALS[k], doc.meta.main.signals[k]);
+    this.doc = doc; this.undoStack = []; this.redoStack = [];
+    this.emit({ type: 'load' });
+  },
+
+  /** Run fn as one undoable step. opts.coalesce merges rapid edits of the same field. */
+  transact(label, fn, opts = {}) {
+    if (this._tx) { fn(); return; }              // nested: join the outer transaction
+    const tx = this._tx = { label, changes: new Map() };
+    try { fn(); } finally { this._tx = null; }
+    if (!tx.changes.size) return;
+    const changes = [...tx.changes.values()].map(c => ({ ...c, after: clone(this.doc[c.coll][c.id] ?? null) }));
+    const now = Date.now(), last = this.undoStack[this.undoStack.length - 1];
+    if (opts.coalesce && last && last.coalesce === opts.coalesce && now - last.t < 1500) {
+      for (const c of changes) {
+        const prev = last.changes.find(p => p.coll === c.coll && p.id === c.id);
+        if (prev) prev.after = c.after; else last.changes.push(c);
+      }
+      last.t = now;
+    } else {
+      this.undoStack.push({ label, changes, t: now, coalesce: opts.coalesce });
+      if (this.undoStack.length > 300) this.undoStack.shift();
+    }
+    this.redoStack = [];
+    this.emit({ type: 'commit', label, changes, origin: opts.origin });
+  },
+  _touch(coll, id) {
+    if (!this._tx) throw new Error('Store mutation outside transact()');
+    const k = coll + ':' + id;
+    if (!this._tx.changes.has(k)) this._tx.changes.set(k, { coll, id, before: clone(this.doc[coll][id] ?? null) });
+  },
+  add(coll, obj) { this._touch(coll, obj.id); this.doc[coll][obj.id] = obj; return obj; },
+  update(coll, id, patch) { if (!this.doc[coll][id]) return; this._touch(coll, id); Object.assign(this.doc[coll][id], patch); },
+  mutate(coll, id, fn) { if (!this.doc[coll][id]) return; this._touch(coll, id); fn(this.doc[coll][id]); },
+  remove(coll, id) { if (!this.doc[coll][id]) return; this._touch(coll, id); delete this.doc[coll][id]; },
+
+  _apply(changes, which) {
+    for (const c of changes) {
+      const v = clone(c[which]);
+      if (v == null) delete this.doc[c.coll][c.id]; else this.doc[c.coll][c.id] = v;
+    }
+  },
+  undo() {
+    const e = this.undoStack.pop(); if (!e) return;
+    this._apply([...e.changes].reverse(), 'before'); this.redoStack.push(e);
+    this.emit({ type: 'undo', label: e.label, changes: e.changes.map(c => ({ ...c, before: c.after, after: c.before })) });
+  },
+  redo() {
+    const e = this.redoStack.pop(); if (!e) return;
+    this._apply(e.changes, 'after'); this.undoStack.push(e);
+    this.emit({ type: 'redo', label: e.label, changes: e.changes });
+  },
+  /** Hook for a future realtime backend: apply changes made by someone else (not undoable locally). */
+  applyRemote(changes) { this._apply(changes, 'after'); this.emit({ type: 'remote', changes }); },
+};
+
+/* =====================================================================
+   4. MODEL OPERATIONS  (no DOM access in here)
+   ===================================================================== */
+const Ops = {
+  makePort(p = {}) {
+    return { id: uid('p_'), label: p.label || 'Port', dir: p.dir || 'in', type: p.type || 'other',
+      side: p.side || defaultSide(p.dir || 'in'), color: p.color || null, comment: p.comment || '' };
+  },
+  makeDevice(preset, x, y) {
+    return { id: uid('d_'), name: preset.name || 'Device', color: preset.color || '#4a5568',
+      x: snapV(x), y: snapV(y), w: preset.w || 160, h: preset.h || 60, notes: preset.notes || '',
+      layer: preset.layer || '', ports: (preset.ports || []).map(p => Ops.makePort(p)) };
+  },
+  addDevice(preset, x, y) {
+    const d = Ops.makeDevice(preset, x, y);
+    Store.transact('Add device', () => Store.add('devices', d));
+    return d;
+  },
+  /** Delete devices/annotations by id. */
+  deleteItems(ids) {
+    Store.transact('Delete', () => {
+      for (const id of ids) {
+        if (Store.doc.devices[id]) Store.remove('devices', id);
+        else if (Store.doc.annotations[id]) Store.remove('annotations', id);
+      }
+    });
+  },
+  /** Insert a clipboard payload (devices with fresh ids), offset by dx/dy. Returns new ids. */
+  pasteData(data, dx, dy) {
+    const newIds = [];
+    Store.transact('Paste', () => {
+      for (const src of data.devices || []) {
+        const d = clone(src);
+        d.id = uid('d_'); d.x = src.x + dx; d.y = src.y + dy;
+        d.ports = d.ports.map(p => ({ ...p, id: uid('p_') }));
+        Store.add('devices', d); newIds.push(d.id);
+      }
+    });
+    return newIds;
+  },
+  /** Next numbered label for a batch of ports: "Out 9" after "Out 1..8". */
+  nextPortNumber(dev, base) {
+    let max = 0; const re = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' (\\d+)$');
+    for (const p of dev.ports) { const m = re.exec(p.label); if (m) max = Math.max(max, +m[1]); }
+    return max + 1;
+  },
+  addPorts(devId, n, dir, type, side) {
+    const dev = Store.doc.devices[devId]; if (!dev) return;
+    const base = dir === 'in' ? 'In' : dir === 'out' ? 'Out' : 'Port';
+    const start = Ops.nextPortNumber(dev, base);
+    Store.transact(n > 1 ? `Add ${n} ports` : 'Add port', () => Store.mutate('devices', devId, d => {
+      for (let i = 0; i < n; i++) d.ports.push(Ops.makePort({ label: `${base} ${start + i}`, dir, type, side }));
+    }));
+  },
+  /** Move a port up/down among ports on the same side (visual order). */
+  movePort(devId, pid, delta) {
+    Store.transact('Reorder port', () => Store.mutate('devices', devId, d => {
+      const i = d.ports.findIndex(p => p.id === pid); if (i < 0) return;
+      const side = d.ports[i].side;
+      let j = i + delta;
+      while (j >= 0 && j < d.ports.length && d.ports[j].side !== side) j += delta;
+      if (j < 0 || j >= d.ports.length) return;
+      const [p] = d.ports.splice(i, 1); d.ports.splice(j, 0, p);
+    }));
+  },
+};
+
+/* =====================================================================
+   5. GEOMETRY
+   Ports are spaced at a fixed PITCH so they line up with the grid; the
+   device grows if it has more ports than fit in its set size.
+   ===================================================================== */
+const geomCache = new Map();   // dev.id -> {w,h,ports:{pid:{x,y,side,nx,ny}}} (relative coords)
+function devGeom(dev) {
+  let g = geomCache.get(dev.id);
+  if (g) return g;
+  const by = { left: [], right: [], top: [], bottom: [] };
+  for (const p of dev.ports) (by[p.side] || by.right).push(p);
+  const nV = Math.max(by.left.length, by.right.length), nH = Math.max(by.top.length, by.bottom.length);
+  const w = Math.max(dev.w || 160, MIN_W, nH * PITCH + 2 * PITCH);
+  const h = Math.max(dev.h || 60, HEADER + nV * PITCH + 10, HEADER + 30);
+  const ports = {};
+  by.left.forEach((p, i) => ports[p.id] = { x: 0, y: HEADER + PITCH / 2 + i * PITCH, side: 'left', nx: -1, ny: 0 });
+  by.right.forEach((p, i) => ports[p.id] = { x: w, y: HEADER + PITCH / 2 + i * PITCH, side: 'right', nx: 1, ny: 0 });
+  by.top.forEach((p, i) => ports[p.id] = { x: PITCH + i * PITCH, y: 0, side: 'top', nx: 0, ny: -1 });
+  by.bottom.forEach((p, i) => ports[p.id] = { x: PITCH + i * PITCH, y: h, side: 'bottom', nx: 0, ny: 1 });
+  g = { w, h, ports };
+  geomCache.set(dev.id, g);
+  return g;
+}
+/** Absolute port position + outward normal. */
+function portPos(dev, pid) {
+  const g = devGeom(dev), p = g.ports[pid];
+  return p ? { x: dev.x + p.x, y: dev.y + p.y, nx: p.nx, ny: p.ny } : { x: dev.x, y: dev.y, nx: 0, ny: 0 };
+}
+function itemBounds(o) {
+  if (o.ports) { const g = devGeom(o); return { x: o.x, y: o.y, w: g.w, h: g.h }; }
+  return { x: o.x, y: o.y, w: o.w || 0, h: o.h || 0 };
+}
+const sigOf = type => Store.main.signals[type] || Store.main.signals.other;
+const portColor = p => p.color || sigOf(p.type).color;
+
+/* =====================================================================
+   6. VIEW STATE  (UI only; never stored in the doc)
+   ===================================================================== */
+const UI = {
+  view: { x: 60, y: 60, k: 1 },
+  sel: new Set(),            // selected entity ids
+  focusPort: null,           // {dev, port} highlighted in inspector
+  snap: true,
+  viewMode: false,
+  spaceDown: false,
+  drag: null,                // active pointer gesture
+  clipboard: null,
+  pasteN: 0,
+};
+const svg = $('#canvas'), world = $('#world');
+const L = { devices: $('#L-devices'), overlay: $('#L-overlay') };
+
+function applyView() {
+  const { x, y, k } = UI.view;
+  world.setAttribute('transform', `translate(${x},${y}) scale(${k})`);
+  for (const [id, size] of [['gridMinor', GRID], ['gridMajor', GRID * 5]]) {
+    const pat = document.getElementById(id);
+    pat.setAttribute('patternTransform', `translate(${x},${y}) scale(${k})`);
+    pat.firstElementChild.setAttribute('stroke-width', 1 / k);
+  }
+  $('#gridRectMinor').style.display = GRID * k < 8 ? 'none' : '';
+  $('#stZoom').textContent = Math.round(k * 100) + '%';
+}
+function toWorld(cx, cy) {
+  const r = svg.getBoundingClientRect();
+  return { x: (cx - r.left - UI.view.x) / UI.view.k, y: (cy - r.top - UI.view.y) / UI.view.k };
+}
+function zoomAt(cx, cy, k) {
+  k = clamp(k, 0.08, 4);
+  const r = svg.getBoundingClientRect(), v = UI.view;
+  const wx = (cx - r.left - v.x) / v.k, wy = (cy - r.top - v.y) / v.k;
+  v.k = k; v.x = cx - r.left - wx * k; v.y = cy - r.top - wy * k;
+  applyView();
+}
+function zoomBy(f) { const r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, UI.view.k * f); }
+function viewCenter() { const r = svg.getBoundingClientRect(); return toWorld(r.left + r.width / 2, r.top + r.height / 2); }
+function contentBounds(ids) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const d = Store.doc;
+  const items = ids ? ids.map(id => d.devices[id] || d.annotations[id]).filter(Boolean) : [...Object.values(d.devices), ...Object.values(d.annotations)];
+  for (const o of items) { const b = itemBounds(o); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); }
+  return isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+}
+function zoomToFit() {
+  const b = contentBounds(); const r = svg.getBoundingClientRect();
+  if (!b) { UI.view = { x: 60, y: 60, k: 1 }; applyView(); return; }
+  const pad = 60, k = clamp(Math.min((r.width - pad * 2) / b.w, (r.height - pad * 2) / b.h), 0.08, 1.5);
+  UI.view = { k, x: (r.width - b.w * k) / 2 - b.x * k, y: (r.height - b.h * k) / 2 - b.y * k };
+  applyView();
+}
+function setSelection(ids) { UI.sel = new Set(ids); UI.focusPort = null; renderSelection(); renderInspector(); }
+
+/* =====================================================================
+   7. RENDERER  (doc -> SVG strings; full rebuild per commit, rAF-batched)
+   ===================================================================== */
+let renderQueued = false;
+function requestRender() { if (!renderQueued) { renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); } }
+function render() {
+  geomCache.clear();
+  let s = '';
+  for (const dev of Object.values(Store.doc.devices)) s += devSVG(dev);
+  L.devices.innerHTML = s;
+  renderSelection();
+  updateStatus();
+}
+function portShape(dir, color) {
+  if (dir === 'in') return `<circle class="port-shape" r="5.5" fill="var(--dev-body)" stroke="${color}" stroke-width="3"/>`;
+  if (dir === 'out') return `<rect class="port-shape" x="-5.5" y="-5.5" width="11" height="11" rx="1.5" fill="${color}"/>`;
+  return `<path class="port-shape" d="M0-7L7 0L0 7L-7 0Z" fill="${color}"/>`;
+}
+function devSVG(dev) {
+  const g = devGeom(dev), c = dev.color, tc = textOn(c), w = g.w, h = g.h;
+  let s = `<g class="dev" data-id="${dev.id}" transform="translate(${dev.x},${dev.y})">`
+    + `<rect class="dev-hl" x="-5" y="-5" width="${w + 10}" height="${h + 10}" rx="9"/>`
+    + `<rect class="dev-body" width="${w}" height="${h}" rx="5" stroke="${c}"/>`
+    + `<path d="M0 5a5 5 0 0 1 5-5h${w - 10}a5 5 0 0 1 5 5v${HEADER - 5}h${-w}z" fill="${c}"/>`
+    + `<text class="dev-name" x="8" y="14" fill="${tc}">${esc(trunc(dev.name, Math.floor((w - (dev.notes ? 30 : 14)) / 7)))}</text>`;
+  if (dev.notes) s += `<g class="dev-note"><title>${esc(dev.notes)}</title><circle cx="${w - 11}" cy="10" r="6.5" fill="${tc}" opacity=".85"/><text x="${w - 11}" y="13.5" font-size="10" font-weight="700" text-anchor="middle" fill="${c}">i</text></g>`;
+  const charsLR = Math.max(3, Math.floor((w / 2 - 14) / 5.8)), charsTB = Math.max(3, Math.floor((h - HEADER - 18) / 5.8));
+  for (const p of dev.ports) {
+    const pp = g.ports[p.id], col = portColor(p);
+    const tip = `${p.label} — ${DIRS[p.dir]} · ${sigOf(p.type).label}${p.comment ? '\n' + p.comment : ''}`;
+    s += `<g class="port" data-dev="${dev.id}" data-port="${p.id}" transform="translate(${pp.x},${pp.y})"><title>${esc(tip)}</title><circle class="port-hit" r="11"/>${portShape(p.dir, col)}</g>`;
+    const lab = esc(trunc(p.label, pp.side === 'left' || pp.side === 'right' ? charsLR : charsTB));
+    if (pp.side === 'left') s += `<text class="port-label" x="12" y="${pp.y + 3.5}">${lab}</text>`;
+    else if (pp.side === 'right') s += `<text class="port-label" x="${w - 12}" y="${pp.y + 3.5}" text-anchor="end">${lab}</text>`;
+    else if (pp.side === 'top') s += `<text class="port-label" transform="translate(${pp.x + 3.5},${HEADER + 6}) rotate(90)">${lab}</text>`;
+    else s += `<text class="port-label" transform="translate(${pp.x + 3.5},${h - 12}) rotate(-90)">${lab}</text>`;
+  }
+  s += `<rect class="dev-resize" x="${w - 7}" y="${h - 7}" width="14" height="14" rx="3"/></g>`;
+  return s;
+}
+function renderSelection() {
+  const front = [];
+  for (const el of L.devices.children) { const on = UI.sel.has(el.dataset.id); el.classList.toggle('sel', on); if (on) front.push(el); }
+  if (front.length && front.length < 50) for (const el of front) L.devices.appendChild(el);   // selected devices draw on top
+  $$('.port.focus', L.devices).forEach(e => e.classList.remove('focus'));
+  if (UI.focusPort) L.devices.querySelector(`.port[data-port="${UI.focusPort.port}"]`)?.classList.add('focus');
+}
+function updateStatus() {
+  const d = Store.doc;
+  $('#stCount').textContent = `${Object.keys(d.devices).length} devices` + (UI.sel.size ? ` · ${UI.sel.size} selected` : '');
+  $('#btnUndo').disabled = !Store.undoStack.length;
+  $('#btnRedo').disabled = !Store.redoStack.length;
+}
+
+/* =====================================================================
+   8. CANVAS INTERACTION
+   Gestures:  drag empty = pan · Shift/Ctrl+drag empty = box select
+              Space+drag or middle mouse = pan anywhere · wheel = zoom
+              drag device = move selection · drag corner = resize
+   ===================================================================== */
+const DRAG_THRESHOLD = 3;
+function entityOf(id) {
+  const d = Store.doc;
+  if (d.devices[id]) return { coll: 'devices', o: d.devices[id] };
+  if (d.annotations[id]) return { coll: 'annotations', o: d.annotations[id] };
+  return null;
+}
+svg.addEventListener('pointerdown', e => {
+  if (UI.drag) return;
+  const w = toWorld(e.clientX, e.clientY);
+  const base = { sx: e.clientX, sy: e.clientY, w0: w, moved: false };
+  if (e.button === 1 || (e.button === 0 && UI.spaceDown)) { e.preventDefault(); startPan(e, base, false); return; }
+  if (e.button !== 0) return;
+  svg.setPointerCapture(e.pointerId);
+  const t = e.target;
+  const portEl = t.closest('.port'), devEl = t.closest('.dev'), resizeEl = t.closest('.dev-resize');
+
+  if (portEl) {                                         // click a port -> focus it in the inspector
+    UI.sel = new Set([portEl.dataset.dev]);
+    UI.focusPort = { dev: portEl.dataset.dev, port: portEl.dataset.port };
+    renderSelection(); renderInspector(true);
+    UI.drag = { ...base, kind: 'none' };
+    return;
+  }
+  if (resizeEl && devEl && !UI.viewMode) {
+    const dev = Store.doc.devices[devEl.dataset.id], g = devGeom(dev);
+    UI.drag = { ...base, kind: 'resize', dev, w0s: dev.w, h0s: dev.h, gw: g.w, gh: g.h };
+    return;
+  }
+  if (devEl) {
+    const id = devEl.dataset.id, additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    if (additive) {
+      if (UI.sel.has(id)) { UI.sel.delete(id); UI.focusPort = null; renderSelection(); renderInspector(); UI.drag = { ...base, kind: 'none' }; return; }
+      UI.sel.add(id);
+    } else if (!UI.sel.has(id)) UI.sel = new Set([id]);
+    UI.focusPort = null;
+    renderSelection(); renderInspector();
+    if (UI.viewMode) { UI.drag = { ...base, kind: 'none' }; return; }
+    startMove(base, id);
+    return;
+  }
+  // empty canvas
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    UI.drag = { ...base, kind: 'marquee', additive: true, el: null };
+  } else startPan(e, base, true);
+});
+function startPan(e, base, clearOnClick) {
+  svg.setPointerCapture(e.pointerId);
+  UI.drag = { ...base, kind: 'pan', v0: { ...UI.view }, clearOnClick };
+  svg.classList.add('panning');
+}
+function startMove(base, anchorId) {
+  const items = [];
+  for (const id of UI.sel) {
+    const ent = entityOf(id); if (!ent) continue;
+    items.push({ id, coll: ent.coll, o: ent.o, x0: ent.o.x, y0: ent.o.y, el: L.devices.querySelector(`[data-id="${id}"]`) });
+  }
+  UI.drag = { ...base, kind: 'move', items, anchor: items.find(i => i.id === anchorId) || items[0] };
+}
+window.addEventListener('pointermove', e => {
+  const dr = UI.drag; if (!dr) return;
+  if (!dr.moved && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < DRAG_THRESHOLD) return;
+  dr.moved = true;
+  const w = toWorld(e.clientX, e.clientY), dx = w.x - dr.w0.x, dy = w.y - dr.w0.y;
+  switch (dr.kind) {
+    case 'pan':
+      UI.view.x = dr.v0.x + (e.clientX - dr.sx); UI.view.y = dr.v0.y + (e.clientY - dr.sy); applyView(); break;
+    case 'move': {
+      const a = dr.anchor; if (!a) break;
+      let nx = a.x0 + dx, ny = a.y0 + dy;
+      if (UI.snap && !e.altKey) { nx = snapV(nx); ny = snapV(ny); }
+      const ddx = nx - a.x0, ddy = ny - a.y0;
+      for (const it of dr.items) {               // live preview: mutate in place, commit on pointerup
+        it.o.x = it.x0 + ddx; it.o.y = it.y0 + ddy;
+        it.el?.setAttribute('transform', `translate(${it.o.x},${it.o.y})`);
+      }
+      dr.ddx = ddx; dr.ddy = ddy;
+      onItemsMoved(dr.items);
+      break;
+    }
+    case 'resize': {
+      let nw = dr.gw + dx, nh = dr.gh + dy;
+      if (UI.snap && !e.altKey) { nw = snapV(nw); nh = snapV(nh); }
+      dr.dev.w = Math.max(MIN_W, nw); dr.dev.h = Math.max(HEADER + 30, nh);
+      requestRender(); break;
+    }
+    case 'marquee': {
+      const x = Math.min(dr.w0.x, w.x), y = Math.min(dr.w0.y, w.y), ww = Math.abs(dx), hh = Math.abs(dy);
+      if (!dr.el) { dr.el = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); dr.el.setAttribute('class', 'marquee'); L.overlay.appendChild(dr.el); }
+      Object.entries({ x, y, width: ww, height: hh }).forEach(([k, v]) => dr.el.setAttribute(k, v));
+      dr.box = { x, y, w: ww, h: hh };
+      break;
+    }
+  }
+});
+window.addEventListener('pointerup', e => {
+  const dr = UI.drag; if (!dr) return;
+  UI.drag = null;
+  svg.classList.remove('panning');
+  if (dr.kind === 'pan' && !dr.moved && dr.clearOnClick) setSelection([]);
+  if (dr.kind === 'move' && dr.moved && (dr.ddx || dr.ddy)) {
+    for (const it of dr.items) { it.o.x = it.x0; it.o.y = it.y0; }   // restore, then commit as one step
+    Store.transact('Move', () => { for (const it of dr.items) Store.update(it.coll, it.id, { x: it.x0 + dr.ddx, y: it.y0 + dr.ddy }); });
+  }
+  if (dr.kind === 'resize' && dr.moved) {
+    const nw = dr.dev.w, nh = dr.dev.h; dr.dev.w = dr.w0s; dr.dev.h = dr.h0s;
+    Store.transact('Resize', () => Store.update('devices', dr.dev.id, { w: nw, h: nh }));
+  }
+  if (dr.kind === 'marquee') {
+    dr.el?.remove();
+    if (dr.box) {
+      const b = dr.box, ids = new Set(dr.additive ? UI.sel : []);
+      for (const o of [...Object.values(Store.doc.devices), ...Object.values(Store.doc.annotations)]) {
+        const ob = itemBounds(o);
+        if (ob.x < b.x + b.w && ob.x + ob.w > b.x && ob.y < b.y + b.h && ob.y + ob.h > b.y) ids.add(o.id);
+      }
+      setSelection([...ids]);
+    }
+  }
+});
+/** Hook for live updates while items are dragged (cables follow in milestone 2). */
+function onItemsMoved(items) {}
+
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+  zoomAt(e.clientX, e.clientY, UI.view.k * Math.exp(-dy * 0.0015));
+}, { passive: false });
+
+// Drop presets from the library
+svg.addEventListener('dragover', e => { if (!UI.viewMode) e.preventDefault(); });
+svg.addEventListener('drop', e => {
+  e.preventDefault();
+  const idx = e.dataTransfer.getData('text/x-preset'); if (idx === '') return;
+  const preset = allPresets()[+idx]; if (!preset) return;
+  const w = toWorld(e.clientX, e.clientY);
+  const d = Ops.addDevice(preset, w.x - 40, w.y - 10);
+  setSelection([d.id]);
+});
+
+/* =====================================================================
+   9. INSPECTOR
+   ===================================================================== */
+const insp = $('#inspector');
+const opt = (obj, cur) => Object.entries(obj).map(([k, v]) => `<option value="${k}"${k === cur ? ' selected' : ''}>${esc(v)}</option>`).join('');
+const sigOptions = cur => opt(Object.fromEntries(SIGNAL_KEYS.map(k => [k, sigOf(k).label])), cur);
+const sideOptions = cur => opt({ left: '◧ Left', right: '◨ Right', top: '⬒ Top', bottom: '⬓ Bottom' }, cur);
+const ro = () => (UI.viewMode ? ' disabled' : '');
+
+function renderInspector(scrollToPort) {
+  const d = Store.doc, ids = [...UI.sel].filter(id => entityOf(id));
+  if (!ids.length) insp.innerHTML = docInspector();
+  else if (ids.length === 1 && d.devices[ids[0]]) insp.innerHTML = deviceInspector(d.devices[ids[0]]);
+  else insp.innerHTML = multiInspector(ids);
+  if (scrollToPort && UI.focusPort) insp.querySelector(`.port-row[data-pid="${UI.focusPort.port}"]`)?.scrollIntoView({ block: 'nearest' });
+  updateStatus();
+}
+function docInspector() {
+  return `<div class="ins-h"><h3>Project</h3></div>
+  <div class="ins-sec">
+    <p class="hint">Drag a device from the library (or click it) to place it. Click a device to edit its ports here.</p>
+    <p class="hint"><b>Drag</b> empty space to pan · <b>wheel</b> to zoom · <b>Shift+drag</b> to box-select · <b>Ctrl+C / V / D</b> copy, paste, duplicate · <b>Del</b> delete · arrows nudge.</p>
+  </div>`;
+}
+function deviceInspector(dev) {
+  const fp = UI.focusPort && UI.focusPort.dev === dev.id ? UI.focusPort.port : null;
+  let s = `<div class="ins-h" data-dev="${dev.id}"><h3>Device</h3>
+    <button data-act="dup" title="Duplicate (Ctrl+D)"${ro()}>Duplicate</button>
+    <button data-act="del" class="danger" title="Delete (Del)"${ro()}>Delete</button></div>
+  <div class="ins-sec" data-dev="${dev.id}">
+    <label>Name<input data-f="name" value="${esc(dev.name)}"${ro()}></label>
+    <div class="row">
+      <label class="nf">Color<input type="color" data-f="color" value="${esc(dev.color)}"${ro()}></label>
+      <label>Width<input type="number" data-f="w" min="${MIN_W}" step="${GRID}" value="${dev.w}"${ro()}></label>
+      <label>Min height<input type="number" data-f="h" min="50" step="${GRID}" value="${dev.h}"${ro()}></label>
+    </div>
+    <label>Notes / comment<textarea data-f="notes" rows="2"${ro()}>${esc(dev.notes)}</textarea></label>
+    <button data-act="save-preset" title="Add this device to the library (stored in this browser)"${ro()}>Save as library preset</button>
+  </div>
+  <div class="ins-sec" data-dev="${dev.id}"><h4>Ports <span class="hint">(${dev.ports.length})</span></h4>`;
+  for (const p of dev.ports) {
+    s += `<div class="port-row${p.id === fp ? ' focus' : ''}" data-pid="${p.id}">
+      <div class="l1">
+        <input type="color" data-pf="color" value="${esc(portColor(p))}" title="Port colour${p.color ? ' (custom)' : ' (follows signal type)'}"${ro()}>
+        <input data-pf="label" value="${esc(p.label)}" placeholder="Label"${ro()}>
+        <select data-pf="dir" title="Direction"${ro()}>${opt(DIRS, p.dir)}</select>
+        <select data-pf="type" title="Signal type"${ro()}>${sigOptions(p.type)}</select>
+      </div>
+      <div class="l2">
+        <select data-pf="side" title="Edge"${ro()}>${sideOptions(p.side)}</select>
+        <input data-pf="comment" value="${esc(p.comment)}" placeholder="Comment"${ro()}>
+        ${p.color ? `<button data-act="port-color-reset" title="Reset colour to signal type"${ro()}>↺</button>` : ''}
+        <button data-act="port-up" title="Move up"${ro()}>▲</button>
+        <button data-act="port-down" title="Move down"${ro()}>▼</button>
+        <button data-act="port-del" class="danger" title="Remove port"${ro()}>✕</button>
+      </div></div>`;
+  }
+  if (!UI.viewMode) s += `
+    <div class="addn">
+      <button data-act="add-n" class="primary">Add</button>
+      <input type="number" id="addN" min="1" max="64" value="${UI.addN || 1}" title="How many">
+      <select id="addDir">${opt(DIRS, UI.addDir || 'out')}</select>
+      <select id="addType">${sigOptions(UI.addType || 'network')}</select>
+      <button data-act="add-8" title="Add 8 ports with these settings">+8</button>
+    </div>`;
+  return s + `</div>`;
+}
+function multiInspector(ids) {
+  return `<div class="ins-h"><h3>${ids.length} items selected</h3></div>
+  <div class="ins-sec">
+    <label class="nf">Device colour (all)<input type="color" data-multi="color" value="#4a5568"${ro()}></label>
+    <div class="row"><button data-act="dup"${ro()}>Duplicate</button><button data-act="del" class="danger"${ro()}>Delete</button></div>
+  </div>`;
+}
+function inspDevId(el) { return el.closest('[data-dev]')?.dataset.dev; }
+function onInspectorEdit(e, final) {
+  if (UI.viewMode) return;
+  const t = e.target, devId = inspDevId(t);
+  if (t.dataset.f && devId) {
+    let v = t.value;
+    if (t.type === 'number') { v = Math.max(+t.min || 0, Math.round(+v || 0)); }
+    Store.transact('Edit device', () => Store.update('devices', devId, { [t.dataset.f]: v }), { origin: 'insp', coalesce: `d:${devId}:${t.dataset.f}` });
+  } else if (t.dataset.pf && devId) {
+    const pid = t.closest('.port-row').dataset.pid, f = t.dataset.pf;
+    Store.transact('Edit port', () => Store.mutate('devices', devId, d => {
+      const p = d.ports.find(x => x.id === pid); if (p) p[f] = t.value;
+    }), { origin: t.tagName === 'SELECT' ? 'insp-rebuild' : 'insp', coalesce: `p:${pid}:${f}` });
+    if (f === 'color' && final) renderInspector();
+  } else if (t.dataset.multi === 'color') {
+    Store.transact('Recolour', () => { for (const id of UI.sel) Store.update('devices', id, { color: t.value }); }, { origin: 'insp', coalesce: 'multi:color' });
+  } else if (t.id === 'addN') UI.addN = clamp(+t.value || 1, 1, 64);
+  else if (t.id === 'addDir') UI.addDir = t.value;
+  else if (t.id === 'addType') UI.addType = t.value;
+}
+insp.addEventListener('input', e => { if (e.target.tagName !== 'SELECT') onInspectorEdit(e, false); });
+insp.addEventListener('change', e => { if (e.target.tagName === 'SELECT' || e.target.type === 'color') onInspectorEdit(e, true); });
+insp.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || UI.viewMode) return;
+  const devId = inspDevId(b), pid = b.closest('.port-row')?.dataset.pid, act = b.dataset.act;
+  if (act === 'del') deleteSelection();
+  else if (act === 'dup') duplicateSelection();
+  else if (act === 'port-up' || act === 'port-down') { Ops.movePort(devId, pid, act === 'port-up' ? -1 : 1); UI.focusPort = { dev: devId, port: pid }; }
+  else if (act === 'port-del') Store.transact('Remove port', () => Store.mutate('devices', devId, d => { d.ports = d.ports.filter(p => p.id !== pid); }));
+  else if (act === 'port-color-reset') Store.transact('Reset port colour', () => Store.mutate('devices', devId, d => { d.ports.find(p => p.id === pid).color = null; }));
+  else if (act === 'add-n' || act === 'add-8') {
+    const n = act === 'add-8' ? 8 : clamp(+$('#addN').value || 1, 1, 64);
+    Ops.addPorts(devId, n, $('#addDir').value, $('#addType').value);
+  } else if (act === 'save-preset') saveUserPreset(Store.doc.devices[devId]);
+});
+// Hovering a port row highlights the port on the canvas
+insp.addEventListener('mouseover', e => {
+  const row = e.target.closest('.port-row');
+  $$('.port.focus', L.devices).forEach(x => x.classList.remove('focus'));
+  const pid = row?.dataset.pid || UI.focusPort?.port;
+  if (pid) L.devices.querySelector(`.port[data-port="${pid}"]`)?.classList.add('focus');
+});
+
+/* =====================================================================
+   10. LIBRARY
+   ===================================================================== */
+function userPresets() { try { return JSON.parse(localStorage.getItem('patchplan.presets') || '[]'); } catch { return []; } }
+function allPresets() { return [...BUILTIN_PRESETS, ...userPresets()]; }
+function saveUserPreset(dev) {
+  const list = userPresets();
+  list.push({ name: dev.name, color: dev.color, w: dev.w, h: dev.h, user: true,
+    ports: dev.ports.map(({ label, dir, type, side, color, comment }) => ({ label, dir, type, side, color, comment })) });
+  try { localStorage.setItem('patchplan.presets', JSON.stringify(list)); toast(`“${dev.name}” added to the library`); } catch { toast('Could not save preset (storage blocked)', 'err'); }
+  renderLibrary();
+}
+function renderLibrary() {
+  const list = allPresets();
+  const item = (p, i) => `<div class="lib-item" draggable="true" data-preset="${i}" title="Click to add, or drag onto the canvas">
+      <span class="sw" style="background:${esc(p.color)}"></span>
+      <span>${esc(p.name)}<small>${p.ports.length} ports</small></span>
+      ${p.user ? `<span class="x" data-del-preset="${i - BUILTIN_PRESETS.length}" title="Remove from library">✕</span>` : ''}</div>`;
+  $('#library').innerHTML = `<button class="primary" id="btnCustom" style="width:100%;margin-bottom:10px">+ New custom device</button>
+    <div class="lib-h">Presets</div>${BUILTIN_PRESETS.map(item).join('')}
+    ${list.length > BUILTIN_PRESETS.length ? `<div class="lib-h">My presets</div>${list.slice(BUILTIN_PRESETS.length).map((p, i) => item(p, i + BUILTIN_PRESETS.length)).join('')}` : ''}`;
+}
+$('#library').addEventListener('dragstart', e => {
+  const it = e.target.closest('[data-preset]'); if (!it) return;
+  e.dataTransfer.setData('text/x-preset', it.dataset.preset); e.dataTransfer.effectAllowed = 'copy';
+});
+$('#library').addEventListener('click', e => {
+  if (UI.viewMode) return toast('View mode is on — switch it off to edit', 'warn');
+  const del = e.target.closest('[data-del-preset]');
+  if (del) { const l = userPresets(); l.splice(+del.dataset.delPreset, 1); localStorage.setItem('patchplan.presets', JSON.stringify(l)); renderLibrary(); return; }
+  if (e.target.closest('#btnCustom')) {
+    const c = viewCenter();
+    const d = Ops.addDevice({ name: 'Custom device', color: '#4a5568', ports: [] }, c.x - 80, c.y - 30);
+    setSelection([d.id]); setTimeout(() => insp.querySelector('[data-f=name]')?.select(), 0);
+    return;
+  }
+  const it = e.target.closest('[data-preset]'); if (!it) return;
+  const c = viewCenter(), off = (UI.pasteN++ % 6) * GRID;
+  const d = Ops.addDevice(allPresets()[+it.dataset.preset], c.x - 80 + off, c.y - 60 + off);
+  setSelection([d.id]);
+});
+
+/* =====================================================================
+   11. KEYBOARD, CLIPBOARD & SELECTION COMMANDS
+   ===================================================================== */
+function deleteSelection() {
+  if (UI.viewMode || !UI.sel.size) return;
+  Ops.deleteItems([...UI.sel]); setSelection([]);
+}
+function copySelection() {
+  const d = Store.doc;
+  const devices = [...UI.sel].map(id => d.devices[id]).filter(Boolean);
+  if (!devices.length) return false;
+  UI.clipboard = clone({ devices });
+  try { localStorage.setItem('patchplan.clipboard', JSON.stringify(UI.clipboard)); } catch {}
+  UI.pasteN = 0;
+  return true;
+}
+function pasteClipboard() {
+  if (UI.viewMode) return;
+  let data = UI.clipboard;
+  try { data = JSON.parse(localStorage.getItem('patchplan.clipboard')) || data; } catch {}
+  if (!data) return;
+  UI.pasteN++;
+  setSelection(Ops.pasteData(data, GRID * 2 * UI.pasteN, GRID * 2 * UI.pasteN));
+}
+function duplicateSelection() {
+  if (UI.viewMode) return;
+  const d = Store.doc, devices = [...UI.sel].map(id => d.devices[id]).filter(Boolean);
+  if (devices.length) setSelection(Ops.pasteData(clone({ devices }), GRID * 2, GRID * 2));
+}
+function nudge(dx, dy) {
+  if (UI.viewMode || !UI.sel.size) return;
+  Store.transact('Nudge', () => { for (const id of UI.sel) { const ent = entityOf(id); if (ent) Store.update(ent.coll, id, { x: ent.o.x + dx, y: ent.o.y + dy }); } }, { coalesce: 'nudge' });
+}
+const isTyping = () => { const a = document.activeElement; return a && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || (a.tagName === 'INPUT' && !['color', 'checkbox', 'button'].includes(a.type))); };
+window.addEventListener('keydown', e => {
+  if (isTyping()) { if (e.key === 'Escape') document.activeElement.blur(); return; }
+  const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (e.code === 'Space') { e.preventDefault(); if (!UI.spaceDown) { UI.spaceDown = true; svg.classList.add('panning'); } return; }
+  if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); if (!UI.viewMode) Store.undo(); }
+  else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); if (!UI.viewMode) Store.redo(); }
+  else if (mod && k === 'c') { if (copySelection()) e.preventDefault(); }
+  else if (mod && k === 'x') { if (!UI.viewMode && copySelection()) { e.preventDefault(); deleteSelection(); } }
+  else if (mod && k === 'v') { e.preventDefault(); pasteClipboard(); }
+  else if (mod && k === 'd') { e.preventDefault(); duplicateSelection(); }
+  else if (mod && k === 'a') { e.preventDefault(); setSelection([...Object.keys(Store.doc.devices), ...Object.keys(Store.doc.annotations)]); }
+  else if (k === 'delete' || k === 'backspace') { e.preventDefault(); deleteSelection(); }
+  else if (k === 'escape') { setSelection([]); }
+  else if (k.startsWith('arrow')) {
+    e.preventDefault(); const s = e.shiftKey ? GRID : (UI.snap ? GRID / 2 : 1);
+    nudge(k === 'arrowleft' ? -s : k === 'arrowright' ? s : 0, k === 'arrowup' ? -s : k === 'arrowdown' ? s : 0);
+  }
+  else if (!mod && k === 'f') zoomToFit();
+  else if (!mod && k === 'g') toggleSnap();
+  else if (!mod && (k === '+' || k === '=')) zoomBy(1.2);
+  else if (!mod && k === '-') zoomBy(1 / 1.2);
+});
+window.addEventListener('keyup', e => { if (e.code === 'Space') { UI.spaceDown = false; if (!UI.drag) svg.classList.remove('panning'); } });
+window.addEventListener('blur', () => { UI.spaceDown = false; svg.classList.remove('panning'); });
+
+/* =====================================================================
+   12. INIT
+   ===================================================================== */
+function toggleSnap() { UI.snap = !UI.snap; $('#btnSnap').classList.toggle('on', UI.snap); }
+$('#btnSnap').onclick = toggleSnap;
+$('#btnFit').onclick = zoomToFit;
+$('#btnZoomIn').onclick = () => zoomBy(1.2);
+$('#btnZoomOut').onclick = () => zoomBy(1 / 1.2);
+$('#btnUndo').onclick = () => Store.undo();
+$('#btnRedo').onclick = () => Store.redo();
+$('#btnNew').onclick = () => { if (confirm('Start a new empty project? Unsaved changes will be lost.')) { Store.load(newDoc()); setSelection([]); } };
+$('#docName').addEventListener('input', e => Store.transact('Rename project', () => Store.update('meta', 'main', { name: e.target.value }), { origin: 'insp', coalesce: 'docname' }));
+
+Store.on(ev => {
+  // prune selection of deleted entities
+  for (const id of [...UI.sel]) if (!entityOf(id)) UI.sel.delete(id);
+  if (UI.focusPort && !Store.doc.devices[UI.focusPort.dev]?.ports.some(p => p.id === UI.focusPort.port)) UI.focusPort = null;
+  requestRender();
+  if (ev.origin !== 'insp') renderInspector();
+  if (document.activeElement !== $('#docName')) $('#docName').value = Store.main.name;
+});
+
+function demoDoc() {
+  const doc = newDoc(); doc.meta.main.name = 'Demo show';
+  const add = (i, x, y, name) => { const d = Ops.makeDevice(BUILTIN_PRESETS[i], x, y); if (name) d.name = name; doc.devices[d.id] = d; return d; };
+  add(5, 0, 0); add(2, 280, 0); add(3, 280, 300); add(0, 600, 0); add(1, 900, 0, 'LED Tile A1'); add(1, 900, 140, 'LED Tile A2'); add(4, 600, 320); add(8, 900, 320);
+  return doc;
+}
+renderLibrary();
+
+$('#btnSnap').classList.toggle('on', UI.snap);
+Store.load(demoDoc());
+applyView();
+requestAnimationFrame(zoomToFit);
+</script>
+</body>
+</html>
