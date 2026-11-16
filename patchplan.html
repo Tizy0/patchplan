@@ -274,6 +274,15 @@ body.viewmode .bg-ctl{display:none}
 .dlg-link{display:flex;gap:6px}
 .dlg-link input{flex:1;font-family:ui-monospace,Consolas,monospace;font-size:12px}
 body:not(.online) .on-only{display:none!important}
+body:not(.owner) .owner-only{display:none!important}
+body.owner .not-owner{display:none!important}
+#status #stUpdate{pointer-events:auto;cursor:pointer;background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.own-list{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow:auto}
+.own-row{display:grid;grid-template-columns:1fr auto;gap:4px 8px;align-items:center;border:1px solid var(--border);border-radius:7px;padding:7px 9px}
+.own-row b{font-size:13px}
+.own-row small{color:var(--muted);grid-column:1}
+.own-row .btns{grid-row:1 / span 2;grid-column:2;display:flex;gap:4px}
+.own-row .btns button{min-height:28px;padding:0 9px;font-size:12px}
 body.online .off-only{display:none!important}
 #saveState.online{color:var(--text)}
 #saveState.warn{color:var(--warn)}
@@ -529,12 +538,15 @@ body.viewmode .edit-only{display:none!important}
         <button data-cmd="save-as">Save as… <kbd>Ctrl+Shift+S</kbd></button>
         <button data-cmd="save-view" title="Same file, but it opens in view-only mode">Save view-only copy (.json)</button>
         <hr>
-        <button data-cmd="online-put" class="edit-only off-only" title="Store this project online with a password and get a link to share">☁ Put this project online…</button>
+        <button data-cmd="online-put" class="edit-only off-only owner-only" title="Store this project online with a password and get a link to share">☁ Put this project online…</button>
         <button data-cmd="online-open" title="Open a project that is online (link or recent)">☁ Open online project…</button>
+        <button data-cmd="online-list" class="owner-only" title="Every online project — open, copy link, delete (owner)">☁ All online projects…</button>
         <button data-cmd="online-share" class="on-only">☁ Share link…</button>
-        <button data-cmd="online-pass" class="edit-only on-only" title="Set a new password; everyone else must type it again">☁ Change project password…</button>
+        <button data-cmd="online-pass" class="edit-only on-only owner-only" title="Set a new password; everyone else must type it again">☁ Change project password…</button>
         <button data-cmd="online-leave" class="on-only" title="Stop syncing; keep working on a local copy">Work offline (local copy)</button>
-        <button data-cmd="online-delete" class="edit-only on-only" title="Remove this project from the server for everyone (asks for the password)">🗑 Delete online project…</button>
+        <button data-cmd="owner-in" class="not-owner" title="For the owner: enter the owner key once on this computer">🔑 Owner sign-in…</button>
+        <button data-cmd="owner-out" class="owner-only" title="Forget the owner key on this computer">🔑 Owner sign-out</button>
+        <button data-cmd="online-delete" class="edit-only on-only owner-only" title="Remove this project from the server for everyone">🗑 Delete online project…</button>
         <hr>
         <button data-cmd="png">Export PNG image</button>
         <button data-cmd="svg">Export SVG drawing</button>
@@ -576,7 +588,7 @@ body.viewmode .edit-only{display:none!important}
           <g id="L-bgctl"></g>
         </g>
       </svg>
-      <div id="status"><span id="stBuild" title="Build number — click for the build history"></span><span id="stOnline" hidden></span><span id="stPeople" hidden></span><span id="stZoom">100%</span><span id="stCount"></span><span id="stMode" hidden></span></div>
+      <div id="status"><span id="stBuild" title="Build number — click for the build history"></span><span id="stOnline" hidden></span><span id="stPeople" hidden></span><span id="stUpdate" hidden></span><span id="stZoom">100%</span><span id="stCount"></span><span id="stMode" hidden></span></div>
       <div id="legend"></div>
       <div id="toast"></div>
       <div id="quick" class="quick" hidden></div>
@@ -643,11 +655,13 @@ body.viewmode .edit-only{display:none!important}
         <li>Colleagues open the .json with this same editor (file or web link).</li>
         <li><b>Save view-only copy</b> opens locked; <b>👁 View only</b> locks your own screen.</li>
         <li>Export PNG / SVG, or <b>Print / PDF</b> (drawing, legend, equipment list, cable totals, cable list).</li>
-        <li><b>Online:</b> File › <b>Put this project online</b>, choose a password, send the link and (separately) the password. Everyone with both works on the same plan at the same time; changes save by themselves and appear for the others in about a second. The bottom bar shows who is online; what they select is outlined in their colour.</li></ul></section>
+        <li><b>Online (owner):</b> File › <b>Owner sign-in</b> once with your owner key; then File › <b>Put this project online</b>, choose a password, send the link and (separately) the password. Only the owner creates, re-passwords and deletes online projects.</li>
+        <li><b>Colleagues</b> open the link and type the project password. Everyone with both works on the same plan at the same time; changes save by themselves and appear for the others in about a second. The bottom bar shows who is online; what they select is outlined in their colour.</li></ul></section>
       <section><h4>8 · Which version am I on?</h4><ul>
         <li>The <b>build number</b> is at the bottom-left of the canvas and saved in every file.</li>
         <li><b>What’s new</b> (tab above) lists every build and what it added.</li>
-        <li>Opening a file from a newer build shows a warning.</li></ul></section>
+        <li>Opening a file from a newer build shows a warning.</li>
+        <li>When a new build is published, a blue <b>“Build N is ready”</b> appears at the bottom — click it to update (you stay in your project).</li></ul></section>
     </div>
     <div id="helpNew" class="help-pane whatsnew" hidden></div>
     <div id="helpKeys" class="help-pane" hidden>
@@ -714,9 +728,14 @@ body.viewmode .edit-only{display:none!important}
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 /* ----- Build number: bump on every new build so everyone knows which version they run ----- */
-const BUILD = { n: 22, date: '2026-11-16' };
+const BUILD = { n: 23, date: '2026-11-16' };
 /* [build, one-line summary, details, date] — add a new entry at the top for every build */
 const BUILD_NOTES = [
+  [23, 'Owner control · automatic updates for everyone', [
+    'Only the owner (with the owner key, entered once via File › Owner sign-in) can put projects online, change a project password, delete a project and see the list of all online projects.',
+    'Colleagues open projects with the project password and edit the plan — nothing else. People who just find the website can only use the editor offline.',
+    'File › All online projects (owner): open any project without its password, copy its link, delete it.',
+    'When a new build is published, everyone who has the editor open gets “Build N is ready — click to update”; one click reloads straight back into the open project. Project links never change.'], '2026-11-16'],
   [22, 'Live editing together', [
     'Online projects are live: other people’s changes appear in about a second (a live connection; it reconnects by itself and catches up after a drop).',
     'Who is online: the bottom bar lists everyone in the project with their colour; click it to change your name. You are asked for your name when you open a project.',
@@ -4587,7 +4606,7 @@ $('#btnView').onclick = () => { setViewMode(!UI.viewMode); toast(UI.viewMode ? '
 /* File menu */
 const FILE_CMDS = {
   new: () => { if (confirm('Start a new empty project? (The current one stays in autosave until you change something.)')) { Store.load(newDoc()); setFileLink(null); setChain(null); setSelection([]); UI.view = { x: 60, y: 60, k: 1 }; applyView(); } },
-  'online-put': () => onlinePutDialog(), 'online-open': () => onlineOpenDialog(), 'online-share': () => onlineShareDialog(), 'online-pass': () => onlinePassDialog(), 'online-leave': () => onlineLeave(), 'online-delete': () => onlineDeleteDialog(),
+  'online-put': () => onlinePutDialog(), 'online-open': () => onlineOpenDialog(), 'online-share': () => onlineShareDialog(), 'online-pass': () => onlinePassDialog(), 'online-leave': () => onlineLeave(), 'online-delete': () => onlineDeleteDialog(), 'online-list': () => ownerProjectsDialog(), 'owner-in': () => ownerSignInDialog(), 'owner-out': () => ownerSignOut(),
   open: openFileDialog, bg: () => { if (!UI.viewMode) $('#bgFile').click(); }, save: () => saveProject(), 'save-as': () => saveProject({ saveAs: true }), 'save-view': () => saveJSON(true), png: exportPNG, svg: exportSVG, print: printLayout,
   'csv-cables': () => exportCSV('cables'), 'csv-ports': () => exportCSV('ports'),
 };
@@ -4816,7 +4835,7 @@ async function api(id, path, { method = 'GET', body, token } = {}) {
   let r;
   try {
     r = await fetch(`${API_BASE}/api/p/${id}/${path}`, { method, cache: 'no-store',
-      headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) },
+      headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}), ...(ownerKey() ? { 'x-owner-key': ownerKey() } : {}) },
       body: body ? JSON.stringify(body) : undefined });
   } catch {
     const e = new Error(IN_FRAME ? `Online projects open on ${ONLINE_HOME} (not inside claude.ai)` : 'No connection to the server — check the internet'); e.offline = true; throw e;
@@ -5040,15 +5059,89 @@ function renderPeers() {
   g.innerHTML = s;
 }
 $('#stPeople').addEventListener('click', () => dialog({ title: 'Your name', ok: 'Save', body: nameField() + '<p class="hint">Shown to the other people in online projects, next to what you select.</p>', onOk: v => { setMyName(v.me || 'Guest'); return true; } }));
+/* ----- owner ----- */
+function ownerKey() { try { return localStorage.getItem('patchplan.ownerKey') || ''; } catch { return ''; } }
+function applyOwnerUI() { document.body.classList.toggle('owner', !!ownerKey()); }
+async function ownerSignInDialog() {
+  await dialog({ title: '🔑 Owner sign-in', ok: 'Sign in',
+    body: `<p class="hint">The owner key lets this computer put projects online, change their passwords, delete them and open any of them. Keep it private — enter it only on your own computers.</p>
+      <label>Owner key<input type="password" name="key" required autocomplete="off" spellcheck="false"></label>`,
+    onOk: async v => {
+      const key = String(v.key || '').trim();
+      const r = await fetch(`${API_BASE}/api/owner/check`, { headers: { 'x-owner-key': key }, cache: 'no-store' }).catch(() => null);
+      if (!r) throw new Error('No connection to the server');
+      if (!r.ok) throw new Error('That is not the owner key');
+      try { localStorage.setItem('patchplan.ownerKey', key); } catch { throw new Error('This browser cannot store the key'); }
+      applyOwnerUI(); toast('Signed in as owner on this computer', '', 2500);
+      return true;
+    } });
+}
+function ownerSignOut() { try { localStorage.removeItem('patchplan.ownerKey'); } catch {} applyOwnerUI(); toast('Owner key removed from this computer', '', 2200); }
+async function ownerProjectsDialog() {
+  if (!ownerKey()) return;
+  let list;
+  try { const r = await fetch(`${API_BASE}/api/owner/projects`, { headers: { 'x-owner-key': ownerKey() }, cache: 'no-store' }); if (!r.ok) throw new Error(r.status === 403 ? 'The owner key is not valid any more — sign in again' : 'Server error ' + r.status); list = (await r.json()).projects || []; }
+  catch (e) { toast('Could not load the projects: ' + e.message, 'err', 5000); return; }
+  await dialog({ title: `☁ All online projects (${list.length})`, ok: '', cancel: 'Close',
+    body: list.length ? `<div class="own-list">${list.map(p => `<div class="own-row" data-own="${esc(p.id)}"><b>${esc(p.name || p.id)}</b>
+        <div class="btns"><button type="button" data-own-act="open">Open</button><button type="button" data-own-act="link">Copy link</button><button type="button" data-own-act="del" class="danger">Delete…</button></div>
+        <small>${esc(p.id)} · created ${esc((p.created || '').slice(0, 10))}${Online.id === p.id ? ' · open now' : ''}</small></div>`).join('')}</div>
+        <p class="hint">Open any project without its password. To give people access, send them the link and the project’s password (change it from inside the project: File › Change project password).</p>`
+      : '<p class="hint">No online projects yet. Open or make a plan, then File › Put this project online.</p>' });
+}
+$('#dlg').addEventListener('click', async e => {
+  const b = e.target.closest('[data-own-act]'); if (!b) return;
+  const id = b.closest('[data-own]').dataset.own, act = b.dataset.ownAct;
+  if (act === 'open') { $('#dlg').firstElementChild.dialogClose?.(null); if (Online.id !== id) { const r = await api(id, 'login', { method: 'POST', body: {} }).catch(err => { toast(err.message, 'err', 5000); }); if (r) await onlineOpen(id, r.token); } }
+  else if (act === 'link') { try { await navigator.clipboard.writeText(projectLink(id)); b.textContent = 'Copied ✓'; } catch { prompt('Project link:', projectLink(id)); } }
+  else if (act === 'del') {
+    if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Click again to delete'; return; }
+    try {
+      if (Online.id === id) Online.deleting = id;
+      await api(id, 'delete', { method: 'POST', body: {} });
+      if (Online.id === id) { onlineLeave(true); Online.deleting = null; }
+      saveCreds(id, null); b.closest('.own-row').remove(); toast('Online project deleted', '', 2200);
+    } catch (err) { Online.deleting = null; toast('Could not delete: ' + err.message, 'err', 5000); }
+  }
+});
+applyOwnerUI();
+window.addEventListener('storage', e => { if (e.key === 'patchplan.ownerKey') applyOwnerUI(); });
+/* ----- new build published -> offer the update to everyone who has the editor open ----- */
+let updLast = 0;
+async function checkForUpdate(force) {
+  if (location.protocol === 'file:' || IN_FRAME || (!force && Date.now() - updLast < 60000)) return;
+  updLast = Date.now();
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
+    const v = await r.json();
+    if (+v.build > BUILD.n) showUpdate(+v.build);
+  } catch {}
+}
+function showUpdate(n) {
+  const el = $('#stUpdate'); if (!el.hidden && el.dataset.build === String(n)) return;
+  el.dataset.build = n; el.hidden = false; el.textContent = `⬆ Build ${n} is ready — click to update`;
+  el.title = 'A new version of the editor was published. Click to load it (your online project stays open; nothing is lost).';
+  const d = toast(`A new version (build ${n}) is ready — click here to update`, '', 12000);
+  if (d) { d.classList.add('clickable'); d.onclick = updateNow; }
+}
+async function updateNow() {
+  if (Online.id && (Online.pending.size || Online.busy)) { clearTimeout(Online.pushT); await onlinePush(); }
+  location.reload();
+}
+$('#stUpdate').addEventListener('click', updateNow);
+setInterval(() => checkForUpdate(), 5 * 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+setTimeout(() => checkForUpdate(true), 4000);
 async function onlineDeleteDialog() {
   if (!Online.id || UI.viewMode) return;
   const id = Online.id, name = Online.name;
   await dialog({ title: '🗑 Delete online project', ok: 'Delete for everyone',
     body: `<p>This removes <b>${esc(name)}</b> from the server for <b>everyone</b>; people who have it open are told. You keep a local copy on this computer (File › Save as… to keep it as a file).</p>
-      <label>Type the project password to confirm<input type="password" name="pw" required autocomplete="current-password"></label>`,
+      <label class="chk"><input type="checkbox" name="sure" required> Yes, delete “${esc(name)}” for everyone</label>`,
     onOk: async v => {
+      if (!v.sure) throw new Error('Tick the box to confirm');
       Online.deleting = id;
-      try { await api(id, 'delete', { method: 'POST', body: { password: v.pw } }); }
+      try { await api(id, 'delete', { method: 'POST', body: {} }); }
       catch (e) { Online.deleting = null; throw e; }
       saveCreds(id, null); onlineLeave(true); Online.deleting = null;
       toast(`“${name}” was deleted online — you keep a local copy`, '', 4000);
@@ -5122,6 +5215,10 @@ async function openOnlineProject(id) {
   askProjectPassword(id);
 }
 async function askProjectPassword(id, { again } = {}) {
+  if (ownerKey()) {
+    try { const r = await api(id, 'login', { method: 'POST', body: {} }); await onlineOpen(id, r.token); return; }
+    catch (e) { if (e.status === 404) { toast('This online project does not exist (wrong link, or it was removed)', 'err', 6000); return; } if (e.status !== 403 && e.status !== 401) { toast('Could not open: ' + e.message, 'err', 6000); return; } }
+  }
   let info;
   try { info = await api(id, 'info'); } catch (e) { toast('Could not reach the online project: ' + e.message, 'err', 6000); return; }
   if (!info.exists) { toast('This online project does not exist (wrong link, or it was removed)', 'err', 6000); saveCreds(id, null); return; }

@@ -7,8 +7,15 @@
  *   /api/p/<id>/doc       GET   (token)                -> {doc, ver, name}
  *   /api/p/<id>/changes   GET   ?since=ver (token)     -> {ver, changes:[{coll,id,after,ver,by}]}
  *   /api/p/<id>/changes   POST  {client, changes:[{coll,id,after}]} (token) -> {ver}
- *   /api/p/<id>/password  POST  {password, client} (token) -> {token}   (signs everyone else out)
- *   /api/p/<id>/delete    POST  {password}             -> {ok}      (removes the online project)
+ *   /api/p/<id>/password  POST  {password, client} (OWNER) -> {token}  (signs everyone else out)
+ *   /api/p/<id>/delete    POST  (OWNER)                -> {ok}      (removes the online project)
+ *   /api/owner/check      GET   (OWNER)                -> {ok}
+ *   /api/owner/projects   GET   (OWNER)                -> {projects:[{id,name,created}]}
+ *
+ * OWNER = request carries the header x-owner-key matching the Worker secret OWNER_KEY.
+ * Only the owner can create projects, change their passwords, delete them and list them;
+ * the owner can also open any project without its password. Everyone else needs the
+ * project password and can only open and edit the plan.
  *   /api/p/<id>/live      WebSocket: first message {type:'hello', token, client, name, color};
  *                         then the room pushes 'changes' / 'poke' / 'presence' / 'sel' messages.
  *
@@ -22,7 +29,7 @@ import { DurableObject } from 'cloudflare:workers';
 
 const CORS = {
   'access-control-allow-origin': '*',            // the token travels in a header, never in cookies
-  'access-control-allow-headers': 'content-type, authorization',
+  'access-control-allow-headers': 'content-type, authorization, x-owner-key',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
   'access-control-max-age': '86400',
 };
@@ -34,20 +41,54 @@ const MAX_PROJECT = 80_000_000;        // ~80 MB per project: warn (protects the
 const PUSH_INLINE = 200_000;           // live messages bigger than this become a 'poke' (clients fetch)
 const SESSION_DAYS = 30;
 
+/** Owner = the request carries the owner key (Worker secret OWNER_KEY). No secret set = nobody is owner. */
+async function isOwner(req, env) {
+  const k = req.headers.get('x-owner-key') || '';
+  if (!env.OWNER_KEY || !k || k.length > 200) return false;
+  const [a, b] = await Promise.all([sha256(k), sha256(env.OWNER_KEY)]);
+  return a === b;
+}
+const registry = env => env.REG.get(env.REG.idFromName('registry'));
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    const owner = await isOwner(req, env);
+    if (url.pathname === '/api/owner/check') return owner ? json({ ok: true }) : json({ error: 'That is not the owner key' }, 403);
+    if (url.pathname === '/api/owner/projects') return owner ? registry(env).fetch('https://reg/list') : json({ error: 'Owner only' }, 403);
     const m = url.pathname.match(/^\/api\/p\/([^/]+)\/(info|create|login|doc|changes|password|delete|live)$/);
     if (!m) return json({ error: 'Not found' }, 404);
     const [, id, action] = m;
     if (!ID_RX.test(id)) return json({ error: 'Invalid project id' }, 400);
     const room = env.ROOMS.get(env.ROOMS.idFromName(id));
     if (action === 'live') return room.fetch(new Request('https://room/live', { headers: req.headers }));
-    return room.fetch(new Request(`https://room/${action}${url.search}`, req));
+    // the room trusts only this header, which only the Worker can set
+    const headers = new Headers(req.headers); headers.delete('x-owner'); if (owner) headers.set('x-owner', '1');
+    const res = await room.fetch(new Request(`https://room/${action}${url.search}`, { method: req.method, headers, body: req.method === 'GET' ? null : req.body }));
+    if (res.ok && action === 'create') { const r = await res.clone().json(); await registry(env).fetch('https://reg/add', { method: 'POST', body: JSON.stringify({ id, name: r.name }) }); }
+    if (res.ok && action === 'delete') await registry(env).fetch('https://reg/remove', { method: 'POST', body: JSON.stringify({ id }) });
+    return res;
   },
 };
+
+/** List of the online projects (for the owner). */
+export class Registry extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, created TEXT)');
+  }
+  async fetch(req) {
+    const a = new URL(req.url).pathname.slice(1);
+    if (a === 'list') return json({ projects: this.sql.exec('SELECT id, name, created FROM projects ORDER BY created DESC').toArray() });
+    const b = await req.json();
+    if (a === 'add') this.sql.exec('INSERT OR REPLACE INTO projects (id, name, created) VALUES (?, ?, ?)', String(b.id), String(b.name || ''), new Date().toISOString());
+    if (a === 'remove') this.sql.exec('DELETE FROM projects WHERE id = ?', String(b.id));
+    return json({ ok: true });
+  }
+}
 
 /* ---------- helpers ---------- */
 const enc = new TextEncoder();
@@ -88,19 +129,19 @@ export class ProjectRoom extends DurableObject {
   get ver() { return +(this.get('ver') || 0); }
 
   async fetch(req) {
-    const url = new URL(req.url), action = url.pathname.slice(1);
+    const url = new URL(req.url), action = url.pathname.slice(1), owner = req.headers.get('x-owner') === '1';
     try {
       if (action === 'live') return this.live(req);
       if (action === 'info') return json({ exists: this.exists, name: this.exists ? this.get('name') : null });
-      if (action === 'create' && req.method === 'POST') return await this.create(await req.json());
-      if (action === 'login' && req.method === 'POST') return await this.login(await req.json());
+      if (action === 'create' && req.method === 'POST') return owner ? await this.create(await req.json()) : json({ error: 'Only the owner can put projects online' }, 403);
+      if (action === 'login' && req.method === 'POST') return await this.login(await req.json(), owner);
       if (!this.exists) return json({ error: 'This online project does not exist' }, 404);
-      if (action === 'delete' && req.method === 'POST') return await this.remove(await req.json());
+      if (action === 'delete' && req.method === 'POST') return owner ? await this.remove() : json({ error: 'Only the owner can delete a project' }, 403);
+      if (action === 'password' && req.method === 'POST') return owner ? await this.changePassword(await req.json()) : json({ error: 'Only the owner can change the project password' }, 403);
       if (!(await this.tokenOk((req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')))) return json({ error: 'Password needed', auth: true }, 401);
       if (action === 'doc' && req.method === 'GET') return json({ doc: this.readDoc(), ver: this.ver, name: this.get('name') });
       if (action === 'changes' && req.method === 'GET') return json(this.since(+url.searchParams.get('since') || 0));
       if (action === 'changes' && req.method === 'POST') return this.write(await req.json());
-      if (action === 'password' && req.method === 'POST') return await this.changePassword(await req.json());
       return json({ error: 'Not found' }, 404);
     } catch (e) {
       return json({ error: 'Server error: ' + (e?.message || e) }, 500);
@@ -151,9 +192,9 @@ export class ProjectRoom extends DurableObject {
     }
     return json({ token: await this.newToken(), ver: this.ver, name });
   }
-  async login(b) {
+  async login(b, owner) {
     if (!this.exists) return json({ error: 'This online project does not exist' }, 404);
-    const bad = await this.verifyPassword(b.password); if (bad) return bad;
+    if (!owner) { const bad = await this.verifyPassword(b.password); if (bad) return bad; }   // the owner opens any project
     this.sql.exec('DELETE FROM sess WHERE exp < ?', Date.now());
     return json({ token: await this.newToken(), name: this.get('name') });
   }
@@ -164,8 +205,7 @@ export class ProjectRoom extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) if (ws.deserializeAttachment()?.client !== client) try { ws.close(4001, 'Password changed'); } catch {}
     return json({ token: await this.newToken() });
   }
-  async remove(b) {
-    const bad = await this.verifyPassword(b.password); if (bad) return bad;
+  async remove() {
     for (const ws of this.ctx.getWebSockets()) try { ws.close(4004, 'Project deleted'); } catch {}
     await this.ctx.storage.deleteAll(); this.init();
     return json({ ok: true });

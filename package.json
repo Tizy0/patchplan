@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Patch Plan Editor - stage cable / patch plan editor (single HTML file)",
   "scripts": {
-    "build": "node -e \"require('fs').copyFileSync('patchplan.html','public/index.html')\"",
+    "build": "node tools/build.mjs",
     "dev": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy"
   },

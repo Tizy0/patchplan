@@ -6,7 +6,8 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
   "assets": { "directory": "./public", "binding": "ASSETS" },
-  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "ProjectRoom" }] },
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "ProjectRoom" }, { "name": "REG", "class_name": "Registry" }] },
+  // the owner key is a secret: npx wrangler secret put OWNER_KEY   (local tests: .dev.vars)
   // SQLite-backed Durable Objects are the ones included in the free plan
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] }, { "tag": "v2", "new_sqlite_classes": ["Registry"] }]
 }

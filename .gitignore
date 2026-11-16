@@ -2,3 +2,5 @@ node_modules/
 .wrangler/
 public/index.html
 .tools/
+public/version.json
+.dev.vars
