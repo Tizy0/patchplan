@@ -126,7 +126,7 @@ label{display:block;color:var(--muted);font-size:11.5px}
 label>input:not([type=color]):not([type=checkbox]),label>select,label>textarea{display:block;width:100%;margin-top:3px;color:var(--text);font-size:13px}
 
 /* ---------- Layout ---------- */
-#app{display:grid;grid-template-columns:210px 1fr 350px;grid-template-rows:48px 1fr;height:100vh}
+#app{display:grid;grid-template-columns:236px 1fr 350px;grid-template-rows:48px 1fr;height:100vh}
 #topbar{grid-column:1/4;display:flex;align-items:center;gap:6px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--border);overflow-x:auto}
 #topbar .brand{font-weight:700;margin-right:6px;white-space:nowrap}
 #topbar .sep{width:1px;height:24px;background:var(--border);margin:0 4px;flex:none}
@@ -183,7 +183,6 @@ label>input:not([type=color]):not([type=checkbox]),label>select,label>textarea{d
 .psel-bar button{padding:2px 8px;min-height:24px;font-size:11.5px}
 .pbatch{border:1.5px solid var(--accent);border-radius:8px;padding:8px;margin:0 0 8px;background:var(--panel2);display:flex;flex-direction:column;gap:6px}
 .pbatch .pb-h{font-weight:600;color:var(--text);font-size:12px}
-#layersPanel .ly-row button.on{color:var(--accent);opacity:1}
 .addn{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
 .addn input{width:52px}
 .icon-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
@@ -365,19 +364,33 @@ input.bad{border-color:var(--danger);box-shadow:0 0 0 2px rgba(217,54,54,.15)}
 
 /* ---------- Layers panel ---------- */
 .lib-tools{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px}
-.ly-row{display:flex;align-items:center;gap:2px;min-height:34px;padding:0 2px 0 4px;border-radius:6px;border:1px solid transparent;cursor:pointer}
-.ly-row:hover{background:var(--panel2)}
-.ly-row.active{border-color:var(--accent);background:var(--accent-soft)}
-.ly-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px}
-.ly-row .n{color:var(--muted);font-size:11px;padding:0 4px}
-.ly-row button{border:0;background:none;min-height:28px;width:26px;padding:0;opacity:.75}
-.ly-row button:hover{opacity:1;background:var(--panel)}
-.ly-row button.off{opacity:.3}
-.ly-row [data-ly=sel],.ly-row [data-ly=del],.ly-row [data-ly=dupl],.ly-row [data-ly=solo]:not(.on){display:none}
-.ly-row:hover [data-ly=sel],.ly-row:hover [data-ly=del],.ly-row:hover [data-ly=dupl],.ly-row:hover [data-ly=solo]{display:inline-block}
-body.viewmode .ly-row:hover [data-ly=dupl]{display:none}
-.ly-row:hover .n{display:none}
-.ly-row input{width:100%;min-height:26px;padding:2px 5px}
+.ly-row{border-radius:8px;border:1px solid transparent;border-left:5px solid var(--lc);margin-bottom:4px;padding:2px 4px 2px 6px;cursor:pointer;background:color-mix(in srgb,var(--lc) 8%,transparent)}
+.ly-row:hover{background:color-mix(in srgb,var(--lc) 14%,var(--panel2))}
+.ly-row.active{border-color:var(--accent);border-left-color:var(--lc);background:color-mix(in srgb,var(--lc) 18%,var(--panel));box-shadow:0 0 0 1px var(--accent-soft)}
+.ly-main{display:flex;align-items:center;gap:6px;min-height:36px}
+.ly-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--text)}
+.ly-row.active .nm{font-weight:700}
+.ly-row.hid .nm,.ly-row.hid .ly-col{opacity:.4}
+.ly-row .n{color:var(--muted);font-size:11px;min-width:16px;text-align:right}
+.ly-row .ly-sdot{width:7px;height:7px;border-radius:50%;background:var(--sel);flex:none}
+.ly-row .ly-lk{font-size:11px;flex:none}
+#layersPanel input.ly-col{-webkit-appearance:none;appearance:none;width:20px!important;height:20px!important;min-width:0;min-height:0!important;padding:0;border:2px solid var(--panel);border-radius:50%;box-shadow:0 0 0 1px var(--border);background:none;flex:none;cursor:pointer}
+.ly-col::-webkit-color-swatch-wrapper{padding:0}
+.ly-col::-webkit-color-swatch{border:none;border-radius:50%}
+.ly-col::-moz-color-swatch{border:none;border-radius:50%}
+.ly-main button[data-ly=vis]{border:0;background:none;min-height:28px;width:28px;padding:0;opacity:.8;flex:none}
+.ly-main button[data-ly=vis]:hover{opacity:1;background:var(--panel)}
+.ly-main button[data-ly=vis].off{opacity:.3}
+.ly-tools{display:none;grid-template-columns:1fr 1fr;gap:4px;padding:2px 0 6px 0}
+.ly-row.active .ly-tools{display:grid}
+#layersPanel .ly-tools button{width:100%;display:flex;align-items:center;justify-content:center;gap:3px;font-size:11.5px;padding:2px 7px;min-height:26px;border:1px solid var(--border);background:var(--panel);border-radius:6px;cursor:pointer}
+#layersPanel .ly-tools button:hover{border-color:var(--accent)}
+#layersPanel .ly-tools button.on{border-color:var(--accent);color:var(--accent)}
+.ly-row input.ly-ren{width:100%;min-height:28px;padding:2px 6px;font-size:13px}
+.ly-opts{display:flex;align-items:center;gap:6px;margin:-4px 2px 8px;font-size:11.5px;color:var(--muted)}
+.ly-opts label{display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--muted)}
+.ly-tag{fill:none;stroke-width:3;opacity:.75;pointer-events:none}
+body.no-lytags .ly-tag{display:none}
 .lib-h{display:flex;align-items:center;justify-content:space-between}
 .lib-h button{min-height:24px;padding:0 8px;font-size:11px;text-transform:none;letter-spacing:0}
 
@@ -651,7 +664,8 @@ body.viewmode .edit-only{display:none!important}
       <section><h4>4 · Organise</h4><ul>
         <li><b>Frames</b> (R) group an area, <b>text</b> (T) adds labels; Ctrl+G frames the selection.</li>
         <li><b>Layers</b> (left): show / hide / lock groups of items. Click a layer to make it active: new items <b>and pasted items</b> go there.</li>
-        <li><b>◎</b> shows only that layer (its own layout) · <b>⧉</b> duplicates a layer · right-click › <b>Copy to layer</b> copies the selection into another layer.</li>
+        <li>Click a layer to make it active; its tools appear underneath: <b>✎ Rename</b> (or double-click the name), <b>Lock</b>, <b>◎ Only this</b> (that layer alone = its own layout), <b>Select items</b>, <b>Delete</b>.</li>
+        <li>Each layer has a <b>colour</b> (click its dot); devices on the plan get a thin outline in their layer colour. Right-click › <b>Copy to layer</b> copies the selection into another layer.</li>
         <li><b>Background</b>: load a venue drawing (SVG, PNG, JPG, PDF) and patch on top of it.</li></ul></section>
       <section><h4>5 · Colours &amp; look</h4><ul>
         <li>Signal legend (project panel, click empty canvas): colour, width and line style per signal type; add your own types.</li>
@@ -741,9 +755,15 @@ body.viewmode .edit-only{display:none!important}
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 /* ----- Build number: bump on every new build so everyone knows which version they run ----- */
-const BUILD = { n: 24, date: '2026-11-25' };
+const BUILD = { n: 25, date: '2026-11-25' };
 /* [build, one-line summary, details, date] — add a new entry at the top for every build */
 const BUILD_NOTES = [
+  [25, 'Clearer layers panel with layer colours', [
+    'Every layer has its own colour (click the colour dot to change it); the plan shows a thin outline in the layer colour around each device, so you see at a glance what is on which layer (switch off with “Colours on plan” in the Layers header).',
+    'Roomier layer rows: click a row to make it the active layer; its tools appear underneath — ✎ Rename, Lock, ◎ Only this layer, Select its items, Delete.',
+    'Rename by double-clicking the name or with ✎ Rename; Enter saves, Esc cancels.',
+    'A dot next to a layer name shows that the current selection is on that layer.',
+    'The “duplicate layer” button was removed — select, copy (Ctrl+C), click the other layer and paste (Ctrl+V).'], '2026-11-25'],
   [24, 'Select many ports in the right panel · view-only sharing · copy to another layer', [
     'Right panel › Ports: tick ports (or Select All / Outputs / Inputs / Connected) and change colour, signal type, direction or edge of all of them at once; the colour can also go to their cables.',
     'Each port row shows its cable: ID, connector, length and where it goes — click the ID to open the cable. Set connector, length and colour for all the cables of the ticked ports.',
@@ -908,6 +928,15 @@ function dashAttrs(pattern, w) {
 /* Colour palette for devices / cables (stored per project in meta.main.palette, editable). */
 const DEFAULT_PALETTE = ['#c53030', '#dd6b20', '#b7791f', '#65a30d', '#2f855a', '#2c7a7b', '#0e7490', '#1f6feb',
   '#33415c', '#6d28d9', '#805ad5', '#b83280', '#5b4a36', '#56606e', '#4a5568', '#2d3748'];
+const LAYER_COLORS = ['#2f80ed', '#e5484d', '#27ae60', '#e0a100', '#9b51e0', '#0ea5a4', '#f97316', '#d6409f', '#5b6ee1', '#6a8a00'];
+/** A layer's colour: its own, else one picked from its position (Default = grey). */
+function layerColor(id) {
+  const l = Store.doc.layers[id]; if (!l) return '#8a94a6';
+  if (/^#[0-9a-f]{6}$/i.test(l.color || '')) return l.color;
+  if (id === BASE_LAYER) return '#8a94a6';
+  const i = sortedLayers().findIndex(x => x.id === id);
+  return LAYER_COLORS[(Math.max(0, i) + LAYER_COLORS.length - 1) % LAYER_COLORS.length];
+}
 const FRAME_COLORS = ['#2f6fed', '#e5484d', '#27ae60', '#e0a100', '#9b51e0', '#0ea5a4', '#f97316', '#64748b'];
 const P = (label, dir, type, side) => ({ label, dir, type, side });
 const range = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1));
@@ -1058,7 +1087,8 @@ const Ops = {
   },
   addLayer(name) {
     const order = Math.max(0, ...Object.values(Store.doc.layers).map(l => l.order || 0)) + 1;
-    const l = { id: uid('l_'), name, order, locked: false };
+    const used = new Set(Object.keys(Store.doc.layers).map(layerColor));
+    const l = { id: uid('l_'), name, order, locked: false, color: LAYER_COLORS.find(c => !used.has(c)) || LAYER_COLORS[order % LAYER_COLORS.length] };
     Store.transact('Add layer', () => Store.add('layers', l));
     return l;
   },
@@ -1889,7 +1919,7 @@ function zoomToFit() {
   UI.view = { k, x: (r.width - b.w * k) / 2 - b.x * k, y: (r.height - b.h * k) / 2 - b.y * k };
   applyView();
 }
-function setSelection(ids) { UI.sel = new Set(ids); UI.focusPort = null; renderSelection(); renderInspector(); if (TBL.open) renderTable(); }
+function setSelection(ids) { UI.sel = new Set(ids); UI.focusPort = null; renderSelection(); renderInspector(); renderLayers(); if (TBL.open) renderTable(); }
 function setChain(cableIds) {
   UI.chainSeed = cableIds && cableIds.length ? cableIds : null;
   UI.chain = UI.chainSeed ? computeChain(UI.chainSeed) : null;
@@ -2073,6 +2103,7 @@ function devSVG(dev) {
   const cwN = FS.name * 0.58, cwP = FS.port * 0.55, ly = FS.port * 0.34;
   let s = `<g class="dev${isLockedItem(dev) ? ' locked' : ''}" data-id="${dev.id}" transform="translate(${dev.x},${dev.y})">`
     + `<rect class="dev-hl" x="-5" y="-5" width="${w + 10}" height="${h + 10}" rx="9"/>`
+    + (Object.keys(Store.doc.layers).length > 1 ? `<rect class="ly-tag" x="-3.5" y="-3.5" width="${w + 7}" height="${h + 7}" rx="8" stroke="${layerColor(layerOf(dev))}"/>` : '')
     + `<clipPath id="cp-${dev.id}"><path d="${body}"/></clipPath>`
     + `<path class="dev-body" d="${body}" stroke="${c}"/>`
     + `<rect width="${w}" height="${HEADER}" fill="${c}" clip-path="url(#cp-${dev.id})"/>`
@@ -3608,30 +3639,46 @@ function addAnnotationHere(kind) {
 }
 
 /* ---------- Layers panel ---------- */
+let layerTags = true; try { layerTags = localStorage.getItem('patchplan.layerTags') !== '0'; } catch {}
+document.body.classList.toggle('no-lytags', !layerTags);
 function renderLayers() {
-  const counts = {};
+  const counts = {}, selOn = new Set();
   for (const o of [...Object.values(Store.doc.devices), ...Object.values(Store.doc.annotations)]) { const l = layerOf(o); counts[l] = (counts[l] || 0) + 1; }
+  for (const id of UI.sel) { const o = Store.doc.devices[id] || Store.doc.annotations[id]; if (o) selOn.add(layerOf(o)); }
   if (!Store.doc.layers[UI.activeLayer]) UI.activeLayer = BASE_LAYER;
-  if (document.activeElement?.closest?.('#layersPanel input')) return;   // don't clobber an inline rename
+  if (document.activeElement?.closest?.('#layersPanel input.ly-ren')) return;   // don't clobber an inline rename
+  const many = Object.keys(Store.doc.layers).length > 1;
   $('#layersPanel').innerHTML = `<div class="lib-h">Layers / groups <button data-ly="add" class="edit-only" title="New layer, e.g. Stage left, FOH, Truss 1">+ Layer</button></div>`
-    + sortedLayers().reverse().map(l => `<div class="ly-row${l.id === UI.activeLayer ? ' active' : ''}" data-layer="${l.id}" title="Click: active layer for new items · double-click name: rename">
-        <button data-ly="vis" class="${UI.hiddenLayers.has(l.id) ? 'off' : ''}" title="Show / hide">👁</button>
-        <button data-ly="lock" class="edit-only${l.locked ? '' : ' off'}" title="${l.locked ? 'Unlock' : 'Lock: items cannot be selected or moved'}">${l.locked ? '🔒' : '🔓'}</button>
-        <span class="nm">${esc(l.name)}</span><span class="n">${counts[l.id] || 0}</span>
-        <button data-ly="solo" class="${isSolo(l.id) ? 'on' : ''}" title="${isSolo(l.id) ? 'Show all layers again' : 'Show only this layer (its own layout)'}">◎</button>
-        <button data-ly="dupl" class="edit-only" title="Duplicate this layer with everything on it">⧉</button>
-        <button data-ly="sel" title="Select everything on this layer">⬚</button>
-        ${l.id !== BASE_LAYER ? `<button data-ly="del" class="edit-only" title="Delete layer (items move to Default)">✕</button>` : ''}
-      </div>`).join('');
+    + (many ? `<div class="ly-opts"><label title="Thin outline in the layer colour around every device on the plan"><input type="checkbox" data-ly="tags"${layerTags ? ' checked' : ''}> Colours on plan</label></div>` : '')
+    + sortedLayers().reverse().map(l => { const col = layerColor(l.id), hid = UI.hiddenLayers.has(l.id), solo = isSolo(l.id);
+      return `<div class="ly-row${l.id === UI.activeLayer ? ' active' : ''}${hid ? ' hid' : ''}" data-layer="${l.id}" style="--lc:${col}" title="Click: active layer (new and pasted items go here) · double-click the name: rename">
+        <div class="ly-main">
+          <input type="color" class="ly-col" value="${col}" title="Layer colour — click to change"${UI.viewMode ? ' disabled' : ''}>
+          <span class="nm">${esc(l.name)}</span>
+          ${selOn.has(l.id) ? '<i class="ly-sdot" title="Selected items are on this layer"></i>' : ''}
+          ${l.locked ? '<span class="ly-lk" title="Locked">🔒</span>' : ''}
+          <span class="n" title="Items on this layer">${counts[l.id] || 0}</span>
+          <button data-ly="vis" class="${hid ? 'off' : ''}" title="${hid ? 'Show' : 'Hide'}">👁</button>
+        </div>
+        <div class="ly-tools">
+          <button data-ly="ren" class="edit-only" title="Rename (or double-click the name)">✎ Rename</button>
+          <button data-ly="lock" class="edit-only${l.locked ? ' on' : ''}" title="${l.locked ? 'Unlock' : 'Lock: items cannot be selected or moved'}">${l.locked ? '🔓 Unlock' : '🔒 Lock'}</button>
+          ${many ? `<button data-ly="solo" class="${solo ? 'on' : ''}" title="${solo ? 'Show all layers again' : 'Show only this layer (its own layout)'}">◎ ${solo ? 'Show all' : 'Only this'}</button>` : ''}
+          <button data-ly="sel" title="Select everything on this layer">⬚ Select items</button>
+          ${l.id !== BASE_LAYER ? `<button data-ly="del" class="edit-only" title="Delete layer (items move to Default)">✕ Delete</button>` : ''}
+        </div>
+      </div>`; }).join('');
 }
 $('#layersPanel').addEventListener('click', e => {
-  const btn = e.target.closest('[data-ly]'), row = e.target.closest('[data-layer]'), id = row?.dataset.layer;
+  if (e.target.closest('.ly-col') || e.target.closest('input.ly-ren')) return;   // colour picker / rename field
+  if (e.target.dataset?.ly === 'tags') { layerTags = e.target.checked; document.body.classList.toggle('no-lytags', !layerTags); try { localStorage.setItem('patchplan.layerTags', layerTags ? '1' : '0'); } catch {} return; }
+  const btn = e.target.closest('button[data-ly]'), row = e.target.closest('[data-layer]'), id = row?.dataset.layer;
   const act = btn?.dataset.ly;
   if (act === 'add') { if (UI.viewMode) return; const l = Ops.addLayer('Layer ' + Object.keys(Store.doc.layers).length); UI.activeLayer = l.id; renderLayers(); startLayerRename(l.id); return; }
-  if (!row || e.target.closest('input')) return;
+  if (!row) return;
   const dropFromSel = () => { for (const x of [...UI.sel]) { const o = entityOf(x)?.o; if (o && !o.from && layerOf(o) === id) UI.sel.delete(x); } };
   if (act === 'solo') { soloLayer(id, !isSolo(id)); return; }
-  if (act === 'dupl') { duplicateLayer(id); return; }
+  if (act === 'ren') { if (!UI.viewMode) startLayerRename(id); return; }
   if (act === 'vis') { UI.hiddenLayers.has(id) ? UI.hiddenLayers.delete(id) : (UI.hiddenLayers.add(id), dropFromSel()); render(); renderInspector(); return; }
   if (act === 'lock') {
     if (UI.viewMode) return;
@@ -3645,12 +3692,17 @@ $('#layersPanel').addEventListener('click', e => {
     UI.hiddenLayers.delete(id); render(); setSelection(ids); if (ids.length) centerOn(ids); return;
   }
   if (act === 'del') { if (!UI.viewMode && confirm(`Delete layer "${Store.doc.layers[id].name}"? Its items move to Default.`)) Ops.deleteLayer(id); return; }
-  UI.activeLayer = id; renderLayers();
+  if (UI.activeLayer !== id) { UI.activeLayer = id; renderLayers(); }
+});
+$('#layersPanel').addEventListener('change', e => {
+  const inp = e.target.closest('.ly-col'); if (!inp || UI.viewMode) return;
+  const id = inp.closest('[data-layer]').dataset.layer;
+  Store.transact('Layer colour', () => Store.update('layers', id, { color: inp.value }));
 });
 $('#layersPanel').addEventListener('dblclick', e => { const row = e.target.closest('[data-layer]'); if (row && e.target.closest('.nm') && !UI.viewMode) startLayerRename(row.dataset.layer); });
 function startLayerRename(id) {
   const nm = $(`#layersPanel [data-layer="${id}"] .nm`); if (!nm) return;
-  nm.innerHTML = `<input value="${esc(Store.doc.layers[id].name)}">`;
+  nm.innerHTML = `<input class="ly-ren" value="${esc(Store.doc.layers[id].name)}" maxlength="60">`;
   const inp = nm.firstChild; inp.focus(); inp.select();
   let finished = false;
   const done = save => {
@@ -4102,16 +4154,6 @@ function copyToLayer(lid) {
   const ids = Ops.pasteData(data, 0, 0, lid);
   soloLayer(lid, true); setSelection(ids);
   toast(`Copied ${ids.length} item${ids.length === 1 ? '' : 's'} to “${Store.doc.layers[lid].name}” — showing only that layer now (◎ in Layers shows all again)`, '', 4500);
-}
-/** New layer with a copy of everything on layer `id` (same places), shown on its own. */
-function duplicateLayer(id) {
-  if (UI.viewMode || !Store.doc.layers[id]) return;
-  const d = Store.doc, devices = Object.values(d.devices).filter(o => layerOf(o) === id), ids = new Set(devices.map(x => x.id));
-  const data = clone({ devices, annotations: Object.values(d.annotations).filter(o => layerOf(o) === id), cables: Object.values(d.cables).filter(c => ids.has(c.from.dev) && ids.has(c.to.dev)) });
-  let l;
-  Store.transact('Duplicate layer', () => { l = Ops.addLayer(d.layers[id].name + ' copy'); Ops.pasteData(data, 0, 0, l.id); });
-  soloLayer(l.id, true);
-  toast(`“${l.name}”: a copy of the layer to change freely — showing only it (◎ shows all layers again)`, '', 4000);
 }
 function duplicateSelection() {
   if (UI.viewMode) return;
@@ -4677,7 +4719,7 @@ function buildExportSVG({ legend = true, forceLight = false } = {}) {
   let body = '';
   for (const g of exportLayers()) {
     const c = g.cloneNode(true);
-    c.querySelectorAll('.bg-item.noexport,.bg-frame,.bg-resize,.dev-resize,.cable-hit,.port-hit,.cable-glow,.dev-hl,.zone-hit,title').forEach(n => n.remove());
+    c.querySelectorAll('.bg-item.noexport,.bg-frame,.bg-resize,.dev-resize,.cable-hit,.port-hit,.cable-glow,.dev-hl,.zone-hit,.ly-tag,title').forEach(n => n.remove());
     c.querySelectorAll('.sel,.chain,.focus,.ok,.mis,.target,.src').forEach(n => n.classList.remove('sel', 'chain', 'focus', 'ok', 'mis', 'target', 'src'));
     c.removeAttribute('id');
     for (const n of [c, ...c.querySelectorAll('*')]) for (const a of [...n.attributes]) if (a.name.startsWith('data-')) n.removeAttribute(a.name);
