@@ -435,6 +435,7 @@ body.no-lytags .ly-tag{display:none}
 #topbar #saveState{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 #topbar #docName{width:150px}
 @media (max-width:1700px){#topbar .brand{display:none}}
+@media (max-width:1650px){#topbar{gap:4px} #topbar button{padding:0 9px} #topbar .sep{margin:0 2px}}
 @media (max-width:1450px){#topbar #docName{width:110px} #topbar .lbl{display:none}}
 #saveState{font-size:11.5px;color:var(--muted);white-space:nowrap}
 
@@ -551,6 +552,7 @@ body.viewmode .edit-only{display:none!important}
     <button id="btnTidy" title="Tidy cables (K): straight right-angle routes, bend points removed, parallel runs spread apart. Applies to the selection, or to all cables when nothing is selected.">⌗<span class="lbl"> Tidy cables</span></button>
     <button id="btnArrange" title="Auto arrange (O): put the devices in order, sources on the left, signal flowing to the right; frames stay together; cables tidied. Applies to the selected devices, the selected frame, or everything.">⇶<span class="lbl"> Arrange</span></button>
     <button id="btnLabels" class="on" title="Show cable IDs on the canvas (L)">IDs</button>
+    <button id="btnLengths" title="Show cable lengths on the canvas (M)">m</button>
     <button id="btnFlow" title="Flow animation (A): glowing dots travel along the cables from output to input. Speed and options in the project panel (click empty canvas).">≋<span class="lbl"> Flow</span></button>
     <button id="btnLists" title="Cable list & port usage (C)">☰<span class="lbl"> Lists</span></button>
     <span class="grow"></span>
@@ -727,6 +729,7 @@ body.viewmode .edit-only{display:none!important}
       <div><span>Add bend point</span><kbd>drag cable</kbd> <kbd>dbl-click</kbd></div>
       <div><span>Remove bend point</span><kbd>dbl-click point</kbd></div>
       <div><span>Show / hide cable IDs</span><kbd>L</kbd></div>
+      <div><span>Show / hide cable lengths (m)</span><kbd>M</kbd></div>
       <div><span>Tidy cables (right angles)</span><kbd>K</kbd></div>
       <div><span>Auto arrange (signal flow left → right)</span><kbd>O</kbd></div>
       <div><span>Flow animation on / off</span><kbd>A</kbd></div>
@@ -770,9 +773,13 @@ body.viewmode .edit-only{display:none!important}
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 /* ----- Build number: bump on every new build so everyone knows which version they run ----- */
-const BUILD = { n: 27, date: '2026-11-25' };
+const BUILD = { n: 28, date: '2026-11-25' };
 /* [build, one-line summary, details, date] — add a new entry at the top for every build */
 const BUILD_NOTES = [
+  [28, 'Cable lengths on the plan', [
+    'New “m” button next to “IDs” (shortcut M): shows each cable’s length on the cable itself, e.g. “NET-003 · 15 m”.',
+    'IDs and lengths switch on and off separately: only IDs, only metres, or both. Cables without a length show “? m”.',
+    'What you see is what you export: PNG / SVG / print include the lengths while they are switched on.'], '2026-11-25'],
   [27, 'Lists filtered by layer', [
     'Lists › “Layers” button: show the cables, ports, devices and quantities of one layer, several layers or all of them (“only” picks a single layer; “Layers shown on the plan” follows the eye buttons).',
     'A cable belongs to a layer when one of its ends is on a device of that layer — so one layer’s list has every cable you need for it.',
@@ -1887,6 +1894,7 @@ const UI = {
   pasteN: 0,
   hiddenTypes: new Set(),    // signal types hidden on the canvas
   showLabels: true,          // cable ID pills
+  showLengths: (() => { try { return localStorage.getItem('patchplan.showLengths') === '1'; } catch { return false; } })(),   // metres on the pills
   chainSeed: null,           // cable ids the highlighted chain was computed from
   chain: null,               // {cables, ports, devs} or null
   activeLayer: BASE_LAYER,   // new items go here
@@ -1995,7 +2003,7 @@ function render() {
   for (const c of vis) {
     const r = routes.get(c.id); if (!r) continue;
     cs += cableSVG(c, r);
-    if (UI.showLabels) ls += labelSVG(c, r, Ops.connectionWarnings(c.from, c.to, c.id).length > 0);
+    if (UI.showLabels || UI.showLengths) ls += labelSVG(c, r, UI.showLabels && Ops.connectionWarnings(c.from, c.to, c.id).length > 0);
   }
   L.cables.innerHTML = cs; L.labels.innerHTML = ls;
   cableEls.clear();
@@ -2104,7 +2112,9 @@ function cableSVG(c, r) {
     + `<path class="cable-hit" d="${r.d}"/></g>`;
 }
 function labelSVG(c, r, warn) {
-  const txt = (warn ? '⚠ ' : '') + c.code + (c.label ? ' · ' + c.label : '') + (c.mc ? ` · ${c.mc.channels.length} ch` : '');
+  const len = c.length === '' || c.length == null || isNaN(+c.length) ? '?' : String(+c.length);
+  const txt = [UI.showLabels ? (warn ? '⚠ ' : '') + c.code + (c.label ? ' · ' + c.label : '') + (c.mc ? ` · ${c.mc.channels.length} ch` : '') : '',
+    UI.showLengths ? len + ' m' : ''].filter(Boolean).join(' · ');
   const w = Math.round(txt.length * FS.cable * 0.59 + 12), hh = Math.round(FS.cable + 6);
   return `<g class="clabel${warn ? ' warn' : ''}" data-cid="${c.id}" transform="translate(${r1(r.mid.x)},${r1(r.mid.y)})">`
     + `<rect x="${-w / 2}" y="${-hh / 2}" width="${w}" height="${hh}" rx="4" stroke="${esc(cableColor(c))}"/>`
@@ -4212,6 +4222,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'delete' || k === 'backspace') { e.preventDefault(); deleteSelection(); }
   else if (k === 'escape') { if (Q) closeQuick(); else if (!$('#help').hidden) toggleHelp(false); else { setChain(null); setSelection([]); } }
   else if (!mod && k === 'l') toggleLabels();
+  else if (!mod && k === 'm') toggleLengths();
   else if (!mod && k === 'c') toggleDrawer();
   else if (!mod && k === 'r') addAnnotationHere('zone');
   else if (!mod && k === 'k') tidyCables();
@@ -5035,6 +5046,13 @@ function toggleFlow(force) {
   toast(FLOW.on ? 'Flow on: dots run from each output to its input' : 'Flow animation off', '', 1500);
 }
 function toggleLabels() { UI.showLabels = !UI.showLabels; $('#btnLabels').classList.toggle('on', UI.showLabels); render(); }
+function toggleLengths() {
+  UI.showLengths = !UI.showLengths; $('#btnLengths').classList.toggle('on', UI.showLengths);
+  try { localStorage.setItem('patchplan.showLengths', UI.showLengths ? '1' : ''); } catch {}
+  render();
+}
+$('#btnLengths').classList.toggle('on', UI.showLengths);
+$('#btnLengths').onclick = toggleLengths;
 $('#btnLabels').onclick = toggleLabels;
 $('#btnFlow').onclick = () => toggleFlow();
 $('#btnTidy').onclick = tidyCables;
