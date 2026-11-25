@@ -2,12 +2,13 @@
  *
  *   /            -> the editor (static file in ./public)
  *   /api/p/<id>/info      GET   project exists? + name                (no password)
- *   /api/p/<id>/create    POST  {name, password, doc}  -> {token, ver}
- *   /api/p/<id>/login     POST  {password}             -> {token, name}
- *   /api/p/<id>/doc       GET   (token)                -> {doc, ver, name}
+ *   /api/p/<id>/create    POST  {name, password, viewPassword?, doc} (OWNER) -> {token, ver}
+ *   /api/p/<id>/login     POST  {password}             -> {token, name, role}   role = 'edit' | 'view'
+ *   /api/p/<id>/doc       GET   (token)                -> {doc, ver, name, role, hasView}
  *   /api/p/<id>/changes   GET   ?since=ver (token)     -> {ver, changes:[{coll,id,after,ver,by}]}
  *   /api/p/<id>/changes   POST  {client, changes:[{coll,id,after}]} (token) -> {ver}
- *   /api/p/<id>/password  POST  {password, client} (OWNER) -> {token}  (signs everyone else out)
+ *   /api/p/<id>/password  POST  {password?, viewPassword?, removeView?, client} (OWNER) -> {token}
+ *                         (a new edit password signs out the editors, a new view password the viewers)
  *   /api/p/<id>/delete    POST  (OWNER)                -> {ok}      (removes the online project)
  *   /api/owner/check      GET   (OWNER)                -> {ok}
  *   /api/owner/projects   GET   (OWNER)                -> {projects:[{id,name,created}]}
@@ -15,7 +16,8 @@
  * OWNER = request carries the header x-owner-key matching the Worker secret OWNER_KEY.
  * Only the owner can create projects, change their passwords, delete them and list them;
  * the owner can also open any project without its password. Everyone else needs the
- * project password and can only open and edit the plan.
+ * project password and can only open and edit the plan. A project can also have a second,
+ * VIEW-ONLY password: people who log in with it see the plan (live) but every write is refused.
  *   /api/p/<id>/live      WebSocket: first message {type:'hello', token, client, name, color};
  *                         then the room pushes 'changes' / 'poke' / 'presence' / 'sel' messages.
  *
@@ -121,8 +123,10 @@ export class ProjectRoom extends DurableObject {
     this.sql.exec('CREATE TABLE IF NOT EXISTS ent (coll TEXT, id TEXT, ver INTEGER, del INTEGER, by TEXT, PRIMARY KEY (coll, id))');
     this.sql.exec('CREATE INDEX IF NOT EXISTS ent_ver ON ent (ver)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS chunk (coll TEXT, id TEXT, seq INTEGER, data TEXT, PRIMARY KEY (coll, id, seq))');
-    this.sql.exec('CREATE TABLE IF NOT EXISTS sess (tok TEXT PRIMARY KEY, exp INTEGER)');
+    this.sql.exec("CREATE TABLE IF NOT EXISTS sess (tok TEXT PRIMARY KEY, exp INTEGER, role TEXT DEFAULT 'edit')");
+    if (!this.sql.exec('PRAGMA table_info(sess)').toArray().some(c => c.name === 'role')) this.sql.exec("ALTER TABLE sess ADD COLUMN role TEXT DEFAULT 'edit'");
   }
+  get hasView() { return !!this.get('vhash'); }
   get(k) { return this.sql.exec('SELECT v FROM meta WHERE k = ?', k).toArray()[0]?.v ?? null; }
   set(k, v) { this.sql.exec('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)', k, String(v)); }
   get exists() { return this.get('hash') != null; }
@@ -138,10 +142,11 @@ export class ProjectRoom extends DurableObject {
       if (!this.exists) return json({ error: 'This online project does not exist' }, 404);
       if (action === 'delete' && req.method === 'POST') return owner ? await this.remove() : json({ error: 'Only the owner can delete a project' }, 403);
       if (action === 'password' && req.method === 'POST') return owner ? await this.changePassword(await req.json()) : json({ error: 'Only the owner can change the project password' }, 403);
-      if (!(await this.tokenOk((req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')))) return json({ error: 'Password needed', auth: true }, 401);
-      if (action === 'doc' && req.method === 'GET') return json({ doc: this.readDoc(), ver: this.ver, name: this.get('name') });
-      if (action === 'changes' && req.method === 'GET') return json(this.since(+url.searchParams.get('since') || 0));
-      if (action === 'changes' && req.method === 'POST') return this.write(await req.json());
+      const role = await this.tokenOk((req.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''));
+      if (!role) return json({ error: 'Password needed', auth: true }, 401);
+      if (action === 'doc' && req.method === 'GET') return json({ doc: this.readDoc(), ver: this.ver, name: this.get('name'), role, hasView: this.hasView });
+      if (action === 'changes' && req.method === 'GET') return json({ ...this.since(+url.searchParams.get('since') || 0), role });
+      if (action === 'changes' && req.method === 'POST') return role === 'edit' ? this.write(await req.json()) : json({ error: 'View only — you cannot change this project', viewOnly: true }, 403);
       return json({ error: 'Not found' }, 404);
     } catch (e) {
       return json({ error: 'Server error: ' + (e?.message || e) }, 500);
@@ -149,41 +154,51 @@ export class ProjectRoom extends DurableObject {
   }
 
   /* ----- passwords & sessions ----- */
-  async setPassword(password) {
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    this.set('salt', b64(salt)); this.set('hash', b64(await pbkdf2(password, salt)));
-    this.sql.exec('DELETE FROM sess');
+  /** role 'edit' = the project password, 'view' = the view-only password. Signs out the sessions of that role. */
+  async setPassword(password, role = 'edit') {
+    const salt = crypto.getRandomValues(new Uint8Array(16)), p = role === 'view' ? 'v' : '';
+    this.set(p + 'salt', b64(salt)); this.set(p + 'hash', b64(await pbkdf2(password, salt)));
+    this.sql.exec('DELETE FROM sess WHERE role = ?', role);
   }
-  async newToken() {
+  async newToken(role = 'edit') {
     const tok = hex(crypto.getRandomValues(new Uint8Array(32)));
-    this.sql.exec('INSERT INTO sess (tok, exp) VALUES (?, ?)', await sha256(tok), Date.now() + SESSION_DAYS * 864e5);
+    this.sql.exec('INSERT INTO sess (tok, exp, role) VALUES (?, ?, ?)', await sha256(tok), Date.now() + SESSION_DAYS * 864e5, role);
     return tok;
   }
+  /** The session's role ('edit' | 'view'), or null when the token is not valid. */
   async tokenOk(tok) {
-    if (!/^[0-9a-f]{64}$/.test(tok || '')) return false;
-    const h = await sha256(tok), row = this.sql.exec('SELECT exp FROM sess WHERE tok = ?', h).toArray()[0];
-    if (!row || row.exp < Date.now()) return false;
+    if (!/^[0-9a-f]{64}$/.test(tok || '')) return null;
+    const h = await sha256(tok), row = this.sql.exec('SELECT exp, role FROM sess WHERE tok = ?', h).toArray()[0];
+    if (!row || row.exp < Date.now()) return null;
     if (row.exp - Date.now() < (SESSION_DAYS - 1) * 864e5) this.sql.exec('UPDATE sess SET exp = ? WHERE tok = ?', Date.now() + SESSION_DAYS * 864e5, h);   // sliding expiry
-    return true;
+    return row.role === 'view' ? 'view' : 'edit';
   }
-  /** Password check with the wrong-password back-off. Returns null when ok, else an error Response. */
+  async matches(password, role) {
+    const p = role === 'view' ? 'v' : '';
+    if (typeof password !== 'string' || !this.get(p + 'hash')) return false;
+    return sameBytes(await pbkdf2(password, unb64(this.get(p + 'salt'))), unb64(this.get(p + 'hash')));
+  }
+  /** Password check with the wrong-password back-off. Returns {role} when ok, else {res: error Response}. */
   async verifyPassword(password) {
     const now = Date.now(), until = +(this.get('lockUntil') || 0);
-    if (now < until) return json({ error: 'Too many wrong passwords — try again in a moment', retryAfter: Math.ceil((until - now) / 1000) }, 429);
-    const ok = typeof password === 'string' && sameBytes(await pbkdf2(password, unb64(this.get('salt'))), unb64(this.get('hash')));
-    if (!ok) {
+    if (now < until) return { res: json({ error: 'Too many wrong passwords — try again in a moment', retryAfter: Math.ceil((until - now) / 1000) }, 429) };
+    const role = (await this.matches(password, 'edit')) ? 'edit' : this.hasView && (await this.matches(password, 'view')) ? 'view' : null;
+    if (!role) {
       const fails = +(this.get('fails') || 0) + 1; this.set('fails', fails);
-      if (fails >= 5) { const wait = Math.min(900, 10 * 2 ** (fails - 5)); this.set('lockUntil', now + wait * 1000); return json({ error: `Wrong password — wait ${wait} s before trying again`, retryAfter: wait }, 429); }
-      return json({ error: 'Wrong password' }, 401);
+      if (fails >= 5) { const wait = Math.min(900, 10 * 2 ** (fails - 5)); this.set('lockUntil', now + wait * 1000); return { res: json({ error: `Wrong password — wait ${wait} s before trying again`, retryAfter: wait }, 429) }; }
+      return { res: json({ error: 'Wrong password' }, 401) };
     }
     this.set('fails', 0); this.set('lockUntil', 0);
-    return null;
+    return { role };
   }
   async create(b) {
     if (this.exists) return json({ error: 'A project with this id already exists' }, 409);
     if (!pwOk(b.password)) return json({ error: 'The password needs at least 6 characters' }, 400);
+    if (b.viewPassword && !pwOk(b.viewPassword)) return json({ error: 'The view-only password needs at least 6 characters' }, 400);
+    if (b.viewPassword && b.viewPassword === b.password) return json({ error: 'The view-only password must be different from the edit password' }, 400);
     const name = clean(b.name || 'Untitled show', 120);
     await this.setPassword(b.password);
+    if (b.viewPassword) await this.setPassword(b.viewPassword, 'view');
     this.set('name', name); this.set('created', new Date().toISOString()); this.set('ver', 0); this.set('fails', 0);
     if (b.doc && typeof b.doc === 'object') {
       const changes = [];
@@ -194,16 +209,25 @@ export class ProjectRoom extends DurableObject {
   }
   async login(b, owner) {
     if (!this.exists) return json({ error: 'This online project does not exist' }, 404);
-    if (!owner) { const bad = await this.verifyPassword(b.password); if (bad) return bad; }   // the owner opens any project
+    let role = 'edit';   // the owner opens any project, always as editor
+    if (!owner) { const v = await this.verifyPassword(b.password); if (v.res) return v.res; role = v.role; }
     this.sql.exec('DELETE FROM sess WHERE exp < ?', Date.now());
-    return json({ token: await this.newToken(), name: this.get('name') });
+    return json({ token: await this.newToken(role), name: this.get('name'), role });
   }
   async changePassword(b) {
-    if (!pwOk(b.password)) return json({ error: 'The password needs at least 6 characters' }, 400);
-    await this.setPassword(b.password);
+    const pw = b.password || '', vpw = b.viewPassword || '';
+    if (!pw && !vpw && !b.removeView) return json({ error: 'Nothing to change' }, 400);
+    if (pw && !pwOk(pw)) return json({ error: 'The password needs at least 6 characters' }, 400);
+    if (vpw && !pwOk(vpw)) return json({ error: 'The view-only password needs at least 6 characters' }, 400);
+    if (vpw && (vpw === pw || (!pw && await this.matches(vpw, 'edit')))) return json({ error: 'The view-only password must be different from the edit password' }, 400);
+    if (pw && !vpw && !b.removeView && await this.matches(pw, 'view')) return json({ error: 'The edit password must be different from the view-only password' }, 400);
+    const out = new Set();
+    if (pw) { await this.setPassword(pw, 'edit'); out.add('edit'); }
+    if (vpw) { await this.setPassword(vpw, 'view'); out.add('view'); }
+    else if (b.removeView && this.hasView) { this.set('vhash', ''); this.set('vsalt', ''); this.sql.exec("DELETE FROM sess WHERE role = 'view'"); out.add('view'); }
     const client = clean(b.client, 40);
-    for (const ws of this.ctx.getWebSockets()) if (ws.deserializeAttachment()?.client !== client) try { ws.close(4001, 'Password changed'); } catch {}
-    return json({ token: await this.newToken() });
+    for (const ws of this.ctx.getWebSockets()) { const a = ws.deserializeAttachment(); if (a?.client !== client && out.has(a?.role || 'edit')) try { ws.close(4001, 'Password changed'); } catch {} }
+    return json({ token: await this.newToken('edit'), hasView: this.hasView });
   }
   async remove() {
     for (const ws of this.ctx.getWebSockets()) try { ws.close(4004, 'Project deleted'); } catch {}
@@ -264,7 +288,7 @@ export class ProjectRoom extends DurableObject {
   }
   people(except) {
     return this.ctx.getWebSockets().filter(ws => ws !== except).map(ws => ws.deserializeAttachment()).filter(a => a?.auth)
-      .map(({ client, name, color, sel }) => ({ client, name, color, sel }));
+      .map(({ client, name, color, sel, role }) => ({ client, name, color, sel, view: role === 'view' }));
   }
   broadcast(s, except) {
     for (const ws of this.ctx.getWebSockets()) if (ws !== except && ws.deserializeAttachment()?.auth) try { ws.send(s); } catch {}
@@ -274,8 +298,9 @@ export class ProjectRoom extends DurableObject {
     let m; try { m = JSON.parse(data); } catch { return; }
     const a = ws.deserializeAttachment() || {};
     if (!a.auth) {
-      if (m.type !== 'hello' || !this.exists || !(await this.tokenOk(m.token))) { try { ws.close(this.exists ? 4001 : 4004, 'Password needed'); } catch {} return; }
-      const me = { auth: true, client: clean(m.client, 40), name: clean(m.name, 40) || 'Guest', color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#888888', sel: [] };
+      const role = m.type === 'hello' && this.exists ? await this.tokenOk(m.token) : null;
+      if (!role) { try { ws.close(this.exists ? 4001 : 4004, 'Password needed'); } catch {} return; }
+      const me = { auth: true, role, client: clean(m.client, 40), name: clean(m.name, 40) || 'Guest', color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#888888', sel: [] };
       ws.serializeAttachment(me);
       ws.send(JSON.stringify({ type: 'welcome', ver: this.ver, people: this.people() }));
       this.broadcast(JSON.stringify({ type: 'presence', people: this.people(), joined: me.name }), ws);

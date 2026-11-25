@@ -175,6 +175,15 @@ label>input:not([type=color]):not([type=checkbox]),label>select,label>textarea{d
 .port-row select[data-pf=side]{width:86px;flex:none}
 .port-row .l2 input{flex:1}
 .port-row button{min-height:30px;padding:0 8px}
+.port-row.psel{border-color:var(--accent);background:var(--accent-soft)}
+.port-row .psel-cb{flex:none;width:16px;height:16px;margin:0;cursor:pointer}
+.port-row .pcab{font-size:11px;color:var(--muted);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.port-row .pcab a{color:var(--accent);cursor:pointer;font-weight:600;text-decoration:none}
+.psel-bar{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin:0 0 6px;font-size:11.5px;color:var(--muted)}
+.psel-bar button{padding:2px 8px;min-height:24px;font-size:11.5px}
+.pbatch{border:1.5px solid var(--accent);border-radius:8px;padding:8px;margin:0 0 8px;background:var(--panel2);display:flex;flex-direction:column;gap:6px}
+.pbatch .pb-h{font-weight:600;color:var(--text);font-size:12px}
+#layersPanel .ly-row button.on{color:var(--accent);opacity:1}
 .addn{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
 .addn input{width:52px}
 .icon-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
@@ -364,8 +373,9 @@ input.bad{border-color:var(--danger);box-shadow:0 0 0 2px rgba(217,54,54,.15)}
 .ly-row button{border:0;background:none;min-height:28px;width:26px;padding:0;opacity:.75}
 .ly-row button:hover{opacity:1;background:var(--panel)}
 .ly-row button.off{opacity:.3}
-.ly-row [data-ly=sel],.ly-row [data-ly=del]{display:none}
-.ly-row:hover [data-ly=sel],.ly-row:hover [data-ly=del]{display:inline-block}
+.ly-row [data-ly=sel],.ly-row [data-ly=del],.ly-row [data-ly=dupl],.ly-row [data-ly=solo]:not(.on){display:none}
+.ly-row:hover [data-ly=sel],.ly-row:hover [data-ly=del],.ly-row:hover [data-ly=dupl],.ly-row:hover [data-ly=solo]{display:inline-block}
+body.viewmode .ly-row:hover [data-ly=dupl]{display:none}
 .ly-row:hover .n{display:none}
 .ly-row input{width:100%;min-height:26px;padding:2px 5px}
 .lib-h{display:flex;align-items:center;justify-content:space-between}
@@ -542,7 +552,7 @@ body.viewmode .edit-only{display:none!important}
         <button data-cmd="online-open" title="Open a project that is online (link or recent)">☁ Open online project…</button>
         <button data-cmd="online-list" class="owner-only" title="Every online project — open, copy link, delete (owner)">☁ All online projects…</button>
         <button data-cmd="online-share" class="on-only">☁ Share link…</button>
-        <button data-cmd="online-pass" class="edit-only on-only owner-only" title="Set a new password; everyone else must type it again">☁ Change project password…</button>
+        <button data-cmd="online-pass" class="edit-only on-only owner-only" title="Change the project password or set a view-only password">☁ Project passwords…</button>
         <button data-cmd="online-leave" class="on-only" title="Stop syncing; keep working on a local copy">Work offline (local copy)</button>
         <button data-cmd="owner-in" class="not-owner" title="For the owner: enter the owner key once on this computer">🔑 Owner sign-in…</button>
         <button data-cmd="owner-out" class="owner-only" title="Forget the owner key on this computer">🔑 Owner sign-out</button>
@@ -629,6 +639,7 @@ body.viewmode .edit-only{display:none!important}
       <section><h4>2 · Devices &amp; ports</h4><ul>
         <li>Click a device to edit it in the right panel: name, colour, type, power, icon, shape, ports.</li>
         <li>Add many numbered ports at once (e.g. 8 × “Out”).</li>
+        <li><b>Tick ports</b> in the port list (or Select All / Outputs / Inputs) to change colour, type, edge — and the colour, connector and length of their cables — all at once.</li>
         <li><b>Double-click a port</b> to rename it; <b>drag a port onto its own device</b> to move it to another edge.</li>
         <li>Box-select with a drag on empty canvas; drag any selected device to move them all.</li></ul></section>
       <section><h4>3 · Cables</h4><ul>
@@ -639,7 +650,8 @@ body.viewmode .edit-only{display:none!important}
         <li>Multicore: select cables, right-click › Bundle into a multicore.</li></ul></section>
       <section><h4>4 · Organise</h4><ul>
         <li><b>Frames</b> (R) group an area, <b>text</b> (T) adds labels; Ctrl+G frames the selection.</li>
-        <li><b>Layers</b> (left): show / hide / lock groups of items.</li>
+        <li><b>Layers</b> (left): show / hide / lock groups of items. Click a layer to make it active: new items <b>and pasted items</b> go there.</li>
+        <li><b>◎</b> shows only that layer (its own layout) · <b>⧉</b> duplicates a layer · right-click › <b>Copy to layer</b> copies the selection into another layer.</li>
         <li><b>Background</b>: load a venue drawing (SVG, PNG, JPG, PDF) and patch on top of it.</li></ul></section>
       <section><h4>5 · Colours &amp; look</h4><ul>
         <li>Signal legend (project panel, click empty canvas): colour, width and line style per signal type; add your own types.</li>
@@ -656,6 +668,7 @@ body.viewmode .edit-only{display:none!important}
         <li><b>Save view-only copy</b> opens locked; <b>👁 View only</b> locks your own screen.</li>
         <li>Export PNG / SVG, or <b>Print / PDF</b> (drawing, legend, equipment list, cable totals, cable list).</li>
         <li><b>Online (owner):</b> File › <b>Owner sign-in</b> once with your owner key; then File › <b>Put this project online</b>, choose a password, send the link and (separately) the password. Only the owner creates, re-passwords and deletes online projects.</li>
+        <li><b>View-only password</b> (optional, set by the owner): people who type it instead of the project password can look but not change anything.</li>
         <li><b>Colleagues</b> open the link and type the project password. Everyone with both works on the same plan at the same time; changes save by themselves and appear for the others in about a second. The bottom bar shows who is online; what they select is outlined in their colour.</li></ul></section>
       <section><h4>8 · Which version am I on?</h4><ul>
         <li>The <b>build number</b> is at the bottom-left of the canvas and saved in every file.</li>
@@ -728,9 +741,15 @@ body.viewmode .edit-only{display:none!important}
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 /* ----- Build number: bump on every new build so everyone knows which version they run ----- */
-const BUILD = { n: 23, date: '2026-11-16' };
+const BUILD = { n: 24, date: '2026-11-25' };
 /* [build, one-line summary, details, date] — add a new entry at the top for every build */
 const BUILD_NOTES = [
+  [24, 'Select many ports in the right panel · view-only sharing · copy to another layer', [
+    'Right panel › Ports: tick ports (or Select All / Outputs / Inputs / Connected) and change colour, signal type, direction or edge of all of them at once; the colour can also go to their cables.',
+    'Each port row shows its cable: ID, connector, length and where it goes — click the ID to open the cable. Set connector, length and colour for all the cables of the ticked ports.',
+    'Online projects can have a second, view-only password: people who open the link with it see the plan live but cannot change anything. Set it in File › Put online or File › Project passwords (owner).',
+    'Paste (Ctrl+V) now goes into the active layer, so you can copy items from one layer into another.',
+    'Layers: ◎ shows only one layer (its own layout), ⧉ duplicates a layer with everything on it, and “Copy to layer” (right-click or right panel) copies the selection into another layer.'], '2026-11-25'],
   [23, 'Owner control · automatic updates for everyone', [
     'Only the owner (with the owner key, entered once via File › Owner sign-in) can put projects online, change a project password, delete a project and see the list of all online projects.',
     'Colleagues open projects with the project password and edit the plan — nothing else. People who just find the website can only use the editor offline.',
@@ -1194,12 +1213,13 @@ const Ops = {
     return n;
   },
   /** Insert a clipboard payload with fresh ids (cables between copied devices included). Returns new ids. */
-  pasteData(data, dx, dy) {
+  pasteData(data, dx, dy, layer) {
     const newIds = [], devMap = {}, portMap = {};
     Store.transact('Paste', () => {
       for (const src of data.devices || []) {
         const d = clone(src);
         d.id = uid('d_'); d.x = src.x + dx; d.y = src.y + dy; devMap[src.id] = d.id;
+        if (layer) d.layer = layer;
         d.ports = d.ports.map(p => { const np = { ...p, id: uid('p_') }; portMap[src.id + '|' + p.id] = np.id; return np; });
         Store.add('devices', d); newIds.push(d.id);
       }
@@ -1214,6 +1234,7 @@ const Ops = {
       }
       for (const src of data.annotations || []) {
         const a = clone(src); a.id = uid('a_'); a.x = src.x + dx; a.y = src.y + dy;
+        if (layer) a.layer = layer;
         if (!Store.doc.layers[a.layer]) a.layer = BASE_LAYER;
         Store.add('annotations', a); newIds.push(a.id);
       }
@@ -2952,8 +2973,56 @@ function mcSection(c) {
     </div>
   </div>`;
 }
+/** Ticked ports of the device in the right panel (kept while that device stays selected). */
+function portSelFor(dev) {
+  if (!UI.portSel || UI.portSelDev !== dev.id) { UI.portSel = new Set(); UI.portSelDev = dev.id; UI.pselLast = null; }
+  for (const id of [...UI.portSel]) if (!dev.ports.some(p => p.id === id)) UI.portSel.delete(id);
+  return dev.ports.filter(p => UI.portSel.has(p.id));
+}
+/** Cables attached to these ports of one device. */
+function portCables(devId, pids) {
+  const ix = getPortIndex();
+  return [...new Set([...pids].flatMap(pid => ix.get(devId + '|' + pid) || []))].filter(id => Store.doc.cables[id]);
+}
+/** The box above the port list when ports are ticked: change them (and their cables) together. */
+function portBatchHTML(dev, ps) {
+  const one = a => { const v = [...new Set(a)]; return v.length === 1 ? v[0] : null; };
+  const col = one(ps.map(portColor)), ty = one(ps.map(p => p.type)), dir = one(ps.map(p => p.dir)), side = one(ps.map(p => p.side));
+  const cids = portCables(dev.id, ps.map(p => p.id)), cabs = cids.map(id => Store.doc.cables[id]);
+  const con = one(cabs.map(c => c.connector || '')), len = one(cabs.map(c => c.length ?? '')), ccol = one(cabs.map(cableColor));
+  return `<div class="pbatch">
+    <div class="pb-h">${ps.length} port${ps.length === 1 ? '' : 's'} ticked — change them together</div>
+    <div class="row">
+      <label class="nf">Colour<input type="color" data-pbi="color" value="${esc(col || '#888888')}" title="Colour of every ticked port"${ro()}></label>
+      <label>Signal type<select data-pbi="type"${ro()}><option value="">${ty ? '' : 'mixed'}</option>${sigOptions(ty || '__')}</select></label>
+    </div>
+    ${paletteHTML('iports', col || '')}
+    <div class="row">
+      <label>Direction<select data-pbi="dir"${ro()}><option value="">${dir ? '' : 'mixed'}</option>${opt(DIRS, dir || '__')}</select></label>
+      <label>Edge<select data-pbi="side"${ro()}><option value="">${side ? '' : 'mixed'}</option>${sideOptions(side || '__')}</select></label>
+      <button class="nf" data-act="pbi-typecolor" title="Ports take the colour of their signal type again"${ro()}>↺ Type colour</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="pbiFollow"${UI.pbiCables !== false ? ' checked' : ''}${ro()}> Port colour also colours their cables${cids.length ? ` (${cids.length})` : ''}</label>
+    ${cids.length ? `<div class="hint">Their ${cids.length} cable${cids.length === 1 ? '' : 's'}:</div>
+    <div class="row">
+      <label class="nf">Cable colour<input type="color" data-pbi="ccolor" value="${esc(ccol || '#888888')}"${ro()}></label>
+      <label>Connector<input data-pbi="connector" list="connList" placeholder="${con == null ? 'mixed' : esc(con || 'e.g. etherCON')}"${ro()}></label>
+      <label class="nf" style="width:74px">Length (m)<input type="number" data-pbi="length" min="0" step="0.5" placeholder="${len == null ? 'mixed' : esc(len === '' ? '—' : len)}"${ro()}></label>
+    </div>
+    <button data-act="pbi-selcables" title="Select these cables on the plan (then the right panel edits them like any cable selection)">Select these ${cids.length} cable${cids.length === 1 ? '' : 's'} on the plan</button>` : '<div class="hint">None of the ticked ports has a cable yet.</div>'}
+    <div class="row"><button data-act="psel" data-k="none">Untick all</button><button data-act="pbi-del" class="danger" title="Remove the ticked ports and their cables"${ro()}>Remove ${ps.length} port${ps.length === 1 ? '' : 's'}</button></div>
+  </div>`;
+}
+/** One line under a port: the cable(s) on it, their connector and length, and where they go. */
+function portCableLine(dev, p) {
+  const ids = getPortIndex().get(dev.id + '|' + p.id) || []; if (!ids.length) return '';
+  return ids.slice(0, 3).map(id => { const c = Store.doc.cables[id]; if (!c) return '';
+    const other = c.from.dev === dev.id && c.from.port === p.id ? c.to : c.from;
+    return `<div class="pcab" title="${esc([c.code, c.connector, c.length !== '' && c.length != null ? c.length + ' m' : '', describeRef(other)].filter(Boolean).join(' · '))}"><a data-goto-cable="${c.id}" title="Open this cable">${esc(c.code)}</a>${c.connector ? ' · ' + esc(c.connector) : ''}${c.length !== '' && c.length != null ? ' · ' + esc(c.length) + ' m' : ''} · ${c.from.dev === dev.id && c.from.port === p.id ? '→' : '←'} ${esc(describeRef(other))}</div>`; }).join('') + (ids.length > 3 ? `<div class="pcab">+ ${ids.length - 3} more</div>` : '');
+}
 function deviceInspector(dev) {
   const fp = UI.focusPort && UI.focusPort.dev === dev.id ? UI.focusPort.port : null;
+  const psel = portSelFor(dev);
   let s = `<div class="ins-h" data-dev="${dev.id}"><h3>Device</h3>
     <button data-act="dup" title="Duplicate (Ctrl+D)"${ro()}>Duplicate</button>
     <button data-act="del" class="danger" title="Delete (Del)"${ro()}>Delete</button></div>
@@ -2977,7 +3046,8 @@ function deviceInspector(dev) {
     ${paletteHTML('dev', dev.color)}
     ${dev.dtype ? `<label class="chk"><input type="checkbox" id="typeLink"${typeLink ? ' checked' : ''}${ro()}> Same colour for every “${esc(dev.dtype)}” (${devicesOfType(dev.dtype).length}) — also new ones from the library</label>
       <button data-act="sel-type" title="Select every device of this type">Select all “${esc(dev.dtype)}”</button>` : ''}
-    <label>Layer / group<select data-f="layer"${ro()}>${layerOptions(layerOf(dev))}</select></label>
+    <div class="row"><label>Layer / group<select data-f="layer"${ro()}>${layerOptions(layerOf(dev))}</select></label>
+      ${Object.keys(Store.doc.layers).length > 1 ? `<label title="Put a copy of this device into another layer">Copy to layer<select data-copyto${ro()}><option value="">—</option>${layerOptions('')}</select></label>` : ''}</div>
     <label>Notes / comment<textarea data-f="notes" rows="2"${ro()}>${esc(dev.notes)}</textarea></label>
   </div>
   <div class="ins-sec" data-dev="${dev.id}"><h4>Icon &amp; shape</h4>
@@ -2992,10 +3062,13 @@ function deviceInspector(dev) {
     </div>
     <button data-act="save-preset" title="Add this device to the library (stored in this browser)"${ro()}>Save as library preset</button>
   </div>
-  <div class="ins-sec" data-dev="${dev.id}"><h4>Ports <span class="hint">(${dev.ports.length})</span></h4>`;
+  <div class="ins-sec" data-dev="${dev.id}"><h4>Ports <span class="hint">(${dev.ports.length})</span></h4>
+    ${dev.ports.length > 1 ? `<div class="psel-bar">Tick: <button data-act="psel" data-k="all">All</button><button data-act="psel" data-k="out">Outputs</button><button data-act="psel" data-k="in">Inputs</button><button data-act="psel" data-k="cab" title="Ports that have a cable">Connected</button>${psel.length ? '<button data-act="psel" data-k="none">None</button>' : ''}<span>· Shift+click a box ticks a range</span></div>` : ''}
+    ${psel.length ? portBatchHTML(dev, psel) : ''}`;
   for (const p of dev.ports) {
-    s += `<div class="port-row${p.id === fp ? ' focus' : ''}" data-pid="${p.id}">
+    s += `<div class="port-row${p.id === fp ? ' focus' : ''}${UI.portSel.has(p.id) ? ' psel' : ''}" data-pid="${p.id}">
       <div class="l1">
+        <input type="checkbox" class="psel-cb" title="Tick to change several ports at once (Shift+click: range)"${UI.portSel.has(p.id) ? ' checked' : ''}>
         <input type="color" data-pf="color" value="${esc(portColor(p))}" title="Port colour${p.color ? ' (custom)' : ' (follows signal type)'}"${ro()}>
         <input data-pf="label" value="${esc(p.label)}" placeholder="Label"${ro()}>
         <select data-pf="dir" title="Direction"${ro()}>${opt(DIRS, p.dir)}</select>
@@ -3008,7 +3081,7 @@ function deviceInspector(dev) {
         <button data-act="port-up" title="Move up"${ro()}>▲</button>
         <button data-act="port-down" title="Move down"${ro()}>▼</button>
         <button data-act="port-del" class="danger" title="Remove port"${ro()}>✕</button>
-      </div></div>`;
+      </div>${portCableLine(dev, p)}</div>`;
   }
   if (!UI.viewMode) s += `
     <div class="addn">
@@ -3126,7 +3199,8 @@ function multiInspector(ids) {
       </div>
       <button data-act="c-legend-color" title="Remove the colour overrides: every selected cable takes the colour of its signal type again"${ro()}>Use the legend colour again</button>`; })() : ''}
     ${nCab ? `<label>Cable line style (all)<select data-multi="dash"${ro()}><option value="-">—</option><option value="">Legend</option>${opt(Object.fromEntries(Object.entries(DASH_STYLES).map(([k, v]) => [k, v[0]])), '')}</select></label>` : ''}
-    ${ids.length - nCab ? `<label>Move to layer<select data-multi="layer"${ro()}><option value="">—</option>${layerOptions('')}</select></label>` : ''}
+    ${ids.length - nCab ? `<div class="row"><label>Move to layer<select data-multi="layer"${ro()}><option value="">—</option>${layerOptions('')}</select></label>
+      <label title="Copy the selected items (and the cables between them) into another layer">Copy to layer<select data-copyto${ro()}><option value="">—</option>${layerOptions('')}</select></label></div>` : ''}
     ${nCab ? `<label>Cable length (m, all selected cables)<input type="number" data-multi="length" min="0" step="0.5"${ro()}></label>` : ''}
     ${nDev ? (() => { const { all, ext } = cableCounts(ids.filter(id => d.devices[id])); return `<div class="row"><button data-act="disc-all" title="Remove every cable attached to the selected devices"${all ? '' : ' disabled'}${ro()}>Disconnect all (${all})</button>
       ${nDev > 1 ? `<button data-act="disc-ext" title="Remove only cables going to devices outside the selection; cables between the selected devices stay"${ext ? '' : ' disabled'}${ro()}>Disconnect from rest (${ext})</button>` : ''}</div>`; })() : ''}
@@ -3216,8 +3290,30 @@ function bgEdit(t, final) {
     if (f === 'locked' && !t.checked) toast('Background unlocked: drag it to move it, drag its corner to resize. Lock it again when it is in place.', '', 3500);
   }
 }
+function portInspBatch(t, final) {
+  const devId = inspDevId(t), dev = Store.doc.devices[devId]; if (!dev) return;
+  const f = t.dataset.pbi, v = t.value, pids = new Set(portSelFor(dev).map(p => p.id)); if (!pids.size) return;
+  if (f === 'type' || f === 'dir' || f === 'side') { if (!v) return; Store.transact('Edit ports', () => Store.mutate('devices', devId, d => { for (const p of d.ports) if (pids.has(p.id)) p[f] = v; })); return; }
+  if (f === 'color') { setPortsColor(devId, pids, v, final); return; }
+  const cids = portCables(devId, pids);
+  if (f === 'ccolor') Store.transact('Cable colour', () => { for (const id of cids) Store.update('cables', id, { color: v }); }, { origin: final ? 'insp-rebuild' : 'insp', coalesce: 'pbi:ccolor' });
+  else if (f === 'connector') Store.transact('Set connector', () => { for (const id of cids) Store.update('cables', id, { connector: v }); }, { origin: final ? 'insp-rebuild' : 'insp', coalesce: 'pbi:conn' });
+  else if (f === 'length') { if (v === '') return; const n = Math.max(0, +v); Store.transact('Cable length', () => { for (const id of cids) Store.update('cables', id, { length: n }); }, { origin: final ? 'insp-rebuild' : 'insp', coalesce: 'pbi:len' }); }
+}
+/** Colour the ticked ports (and, when "also their cables" is on, their cables). color null = type colour. */
+function setPortsColor(devId, pids, color, final) {
+  const cids = UI.pbiCables !== false ? portCables(devId, pids) : [];
+  Store.transact('Port colour', () => {
+    Store.mutate('devices', devId, d => { for (const p of d.ports) if (pids.has(p.id)) p.color = color; });
+    for (const id of cids) Store.update('cables', id, { color: color || '' });
+  }, { origin: final ? 'insp-rebuild' : 'insp', coalesce: 'pbi:color' });
+}
 function onInspectorEdit(e, final) {
+  const t0 = e.target;
+  if (t0.classList?.contains('psel-cb') || t0.id === 'pbiFollow') return;   // handled on click
+  if (t0.dataset?.copyto != null) { if (t0.value && final) copyToLayer(t0.value); t0.value = ''; return; }
   if (UI.viewMode) return;
+  if (t0.dataset?.pbi) { portInspBatch(t0, final); return; }
   const t = e.target, devId = inspDevId(t);
   if (t.dataset.mcf || t.dataset.mcall != null) { mcEdit(t, final); return; }
   if (t.dataset.mcn != null) return;   // channel count applies on change (Enter / leaving the field)
@@ -3324,6 +3420,25 @@ function onInspectorEdit(e, final) {
 insp.addEventListener('input', e => { if (e.target.tagName !== 'SELECT' && e.target.type !== 'checkbox') onInspectorEdit(e, false); });
 insp.addEventListener('change', e => { if (e.target.tagName === 'SELECT' || e.target.type === 'color' || e.target.type === 'checkbox') onInspectorEdit(e, true); });
 insp.addEventListener('click', e => {
+  const cb = e.target.closest('.psel-cb');
+  if (cb) {
+    const devId = inspDevId(cb), dev = Store.doc.devices[devId], pid = cb.closest('.port-row').dataset.pid; if (!dev) return;
+    portSelFor(dev);
+    const idx = dev.ports.findIndex(p => p.id === pid), last = dev.ports.findIndex(p => p.id === UI.pselLast);
+    if (e.shiftKey && last >= 0) { const [a, z] = idx < last ? [idx, last] : [last, idx]; for (let i = a; i <= z; i++) cb.checked ? UI.portSel.add(dev.ports[i].id) : UI.portSel.delete(dev.ports[i].id); }
+    else cb.checked ? UI.portSel.add(pid) : UI.portSel.delete(pid);
+    UI.pselLast = pid; renderInspector(); return;
+  }
+  if (e.target.id === 'pbiFollow') { UI.pbiCables = e.target.checked; return; }
+  const gc = e.target.closest('[data-goto-cable]');
+  if (gc) { e.preventDefault(); if (Store.doc.cables[gc.dataset.gotoCable]) { setChain(null); setSelection([gc.dataset.gotoCable]); } return; }
+  const pb = e.target.closest('[data-act=psel]');
+  if (pb) {
+    const dev = Store.doc.devices[inspDevId(pb)], k = pb.dataset.k, ix = getPortIndex(); if (!dev) return;
+    portSelFor(dev);
+    UI.portSel = new Set(k === 'none' ? [] : dev.ports.filter(p => k === 'all' || (k === 'cab' ? (ix.get(dev.id + '|' + p.id) || []).length > 0 : k === 'out' ? p.dir !== 'in' : p.dir !== 'out')).map(p => p.id));
+    renderInspector(); return;
+  }
   const go = e.target.closest('[data-goto-dev]');
   if (go) { const ref = { dev: go.dataset.gotoDev, port: go.dataset.gotoPort }; focusPort(ref, true); centerOn([ref.dev]); return; }
   const b = e.target.closest('[data-act]'); if (!b || UI.viewMode) return;
@@ -3355,6 +3470,14 @@ insp.addEventListener('click', e => {
     if (dv && cc) Store.transact('Flip multicore end', () => { Store.update('devices', id, { mcSide: (dv.mcSide || (dv.breakout === 'A' ? 'left' : 'right')) === 'left' ? 'right' : 'left' }); Ops.syncMC(cc.id); }); }
   else if (act === 'cable-swap') { const c = Store.doc.cables[cid]; Store.transact('Swap cable ends', () => Store.update('cables', cid, { from: c.to, to: c.from, waypoints: [...(c.waypoints || [])].reverse() })); }
   else if (act === 'cable-color-reset') Store.transact('Reset cable colour', () => Store.update('cables', cid, { color: null }));
+  else if (act === 'pal' && b.dataset.kind === 'iports') { const dv = Store.doc.devices[devId]; if (dv) setPortsColor(devId, new Set(portSelFor(dv).map(p => p.id)), b.dataset.color, true); }
+  else if (act === 'pbi-typecolor') { const dv = Store.doc.devices[devId]; if (dv) setPortsColor(devId, new Set(portSelFor(dv).map(p => p.id)), null, true); }
+  else if (act === 'pbi-selcables') { const dv = Store.doc.devices[devId]; if (dv) { const ids = portCables(devId, portSelFor(dv).map(p => p.id)); setChain(null); setSelection(ids); } }
+  else if (act === 'pbi-del') {
+    const dv = Store.doc.devices[devId]; if (!dv) return; const ps = portSelFor(dv);
+    Store.transact('Remove ports', () => { for (const p of ps) Ops.removePort(devId, p.id); });
+    UI.portSel.clear(); toast(`Removed ${ps.length} port${ps.length === 1 ? '' : 's'} (Ctrl+Z to undo)`, '', 2200);
+  }
   else if (act === 'pal') applyPaletteColor(b.dataset.kind, b.dataset.color, devId, cid, b.closest('[data-sig]')?.dataset.sig);
   else if (act === 'sig-pal') { const k = b.closest('[data-sig]').dataset.sig; UI.sigPal = UI.sigPal === k ? null : k; renderInspector(); }
   else if (act === 'sig-add') {
@@ -3495,6 +3618,8 @@ function renderLayers() {
         <button data-ly="vis" class="${UI.hiddenLayers.has(l.id) ? 'off' : ''}" title="Show / hide">👁</button>
         <button data-ly="lock" class="edit-only${l.locked ? '' : ' off'}" title="${l.locked ? 'Unlock' : 'Lock: items cannot be selected or moved'}">${l.locked ? '🔒' : '🔓'}</button>
         <span class="nm">${esc(l.name)}</span><span class="n">${counts[l.id] || 0}</span>
+        <button data-ly="solo" class="${isSolo(l.id) ? 'on' : ''}" title="${isSolo(l.id) ? 'Show all layers again' : 'Show only this layer (its own layout)'}">◎</button>
+        <button data-ly="dupl" class="edit-only" title="Duplicate this layer with everything on it">⧉</button>
         <button data-ly="sel" title="Select everything on this layer">⬚</button>
         ${l.id !== BASE_LAYER ? `<button data-ly="del" class="edit-only" title="Delete layer (items move to Default)">✕</button>` : ''}
       </div>`).join('');
@@ -3505,6 +3630,8 @@ $('#layersPanel').addEventListener('click', e => {
   if (act === 'add') { if (UI.viewMode) return; const l = Ops.addLayer('Layer ' + Object.keys(Store.doc.layers).length); UI.activeLayer = l.id; renderLayers(); startLayerRename(l.id); return; }
   if (!row || e.target.closest('input')) return;
   const dropFromSel = () => { for (const x of [...UI.sel]) { const o = entityOf(x)?.o; if (o && !o.from && layerOf(o) === id) UI.sel.delete(x); } };
+  if (act === 'solo') { soloLayer(id, !isSolo(id)); return; }
+  if (act === 'dupl') { duplicateLayer(id); return; }
   if (act === 'vis') { UI.hiddenLayers.has(id) ? UI.hiddenLayers.delete(id) : (UI.hiddenLayers.add(id), dropFromSel()); render(); renderInspector(); return; }
   if (act === 'lock') {
     if (UI.viewMode) return;
@@ -3855,6 +3982,9 @@ function openCtx(at) {
     if (mcSel) h += it('mc-unbundle', `Unbundle multicore ${esc(mcSel.code)}`);
     if (bc.n || mcSel) h += '<hr>';
     h += it('copy', 'Copy', 'Ctrl+C') + it('dup', 'Duplicate', 'Ctrl+D') + it('paste', 'Paste here', 'Ctrl+V', !clip);
+    const lys = sortedLayers().reverse();
+    if (lys.length > 1 && [...UI.sel].some(id => Store.doc.devices[id] || Store.doc.annotations[id]))
+      h += '<hr><div class="ctx-h">Copy to layer</div>' + lys.slice(0, 10).map(l => `<button data-ctx="copyto" data-lid="${l.id}"><span>${esc(l.name)}</span><span class="kbd">${l.locked ? '🔒' : ''}</span></button>`).join('') + '<hr>';
     const nz = [...UI.sel].filter(id => Store.doc.annotations[id]?.kind === 'zone').length;
     if (n >= 2) h += it('same-size', 'Same size') + it('scale-up', 'Bigger (+10%)') + it('scale-down', 'Smaller (−10%)');
     if (n >= 2 || (UI.sel.size === 1 && nz === 1)) h += it('arrange', n >= 2 ? 'Auto arrange selected' : 'Auto arrange inside frame', 'O');
@@ -3870,7 +4000,8 @@ function openCtx(at) {
 $('#ctx').addEventListener('click', e => {
   const b = e.target.closest('button[data-ctx]'); if (!b || b.disabled) return;
   const act = b.dataset.ctx, at = $('#ctx')._at; closeCtx();
-  if (act === 'disc-all') disconnectSelection(false);
+  if (act === 'copyto') copyToLayer(b.dataset.lid);
+  else if (act === 'disc-all') disconnectSelection(false);
   else if (act === 'disc-ext') disconnectSelection(true);
   else if (act === 'copy') { if (copySelection()) toast('Copied', '', 1000); }
   else if (act === 'dup') duplicateSelection();
@@ -3948,8 +4079,39 @@ function pasteClipboard(at) {
   UI.pasteN++;
   let target = at || UI.mouse || UI.clickPt;
   if (!target) { const { bb } = payloadBoxes(data); target = { x: (bb.x0 + bb.x1) / 2 + GRID * 2 * UI.pasteN, y: (bb.y0 + bb.y1) / 2 + GRID * 2 * UI.pasteN }; }
+  const lid = activeLayerForNew();
+  if (Store.doc.layers[lid]?.locked) { toast(`Layer “${Store.doc.layers[lid].name}” is locked — unlock it to paste into it`, 'warn', 3000); return; }
   const { dx, dy } = freePasteOffset(data, target);
-  setSelection(Ops.pasteData(data, dx, dy));
+  setSelection(Ops.pasteData(data, dx, dy, lid));
+}
+/** Show only one layer (on) or every layer again (off). Visibility is per viewer, like the eye buttons. */
+function soloLayer(lid, on) {
+  UI.hiddenLayers.clear();
+  if (on) for (const id of Object.keys(Store.doc.layers)) if (id !== lid) UI.hiddenLayers.add(id);
+  if (on) UI.activeLayer = lid;
+  for (const x of [...UI.sel]) { const o = entityOf(x)?.o; if (o && !o.from && isHiddenItem(o)) UI.sel.delete(x); }
+  render(); renderLayers(); renderInspector();
+}
+function isSolo(lid) { return Object.keys(Store.doc.layers).length > 1 && !UI.hiddenLayers.has(lid) && Object.keys(Store.doc.layers).every(id => id === lid || UI.hiddenLayers.has(id)); }
+/** Copy the selection (with the cables between the copied devices) into another layer, at the same place,
+    and show only that layer, so each layer can be its own layout. */
+function copyToLayer(lid) {
+  if (UI.viewMode || !Store.doc.layers[lid]) return;
+  if (Store.doc.layers[lid].locked) { toast(`Layer “${Store.doc.layers[lid].name}” is locked`, 'warn', 2500); return; }
+  const data = selectionPayload(); if (!data) { toast('Select devices, frames or labels to copy', '', 2000); return; }
+  const ids = Ops.pasteData(data, 0, 0, lid);
+  soloLayer(lid, true); setSelection(ids);
+  toast(`Copied ${ids.length} item${ids.length === 1 ? '' : 's'} to “${Store.doc.layers[lid].name}” — showing only that layer now (◎ in Layers shows all again)`, '', 4500);
+}
+/** New layer with a copy of everything on layer `id` (same places), shown on its own. */
+function duplicateLayer(id) {
+  if (UI.viewMode || !Store.doc.layers[id]) return;
+  const d = Store.doc, devices = Object.values(d.devices).filter(o => layerOf(o) === id), ids = new Set(devices.map(x => x.id));
+  const data = clone({ devices, annotations: Object.values(d.annotations).filter(o => layerOf(o) === id), cables: Object.values(d.cables).filter(c => ids.has(c.from.dev) && ids.has(c.to.dev)) });
+  let l;
+  Store.transact('Duplicate layer', () => { l = Ops.addLayer(d.layers[id].name + ' copy'); Ops.pasteData(data, 0, 0, l.id); });
+  soloLayer(l.id, true);
+  toast(`“${l.name}”: a copy of the layer to change freely — showing only it (◎ shows all layers again)`, '', 4000);
 }
 function duplicateSelection() {
   if (UI.viewMode) return;
@@ -4344,7 +4506,8 @@ const FileLink = { handle: null, dirty: false, savedAt: null };
 /* Online project state (see section ONLINE PROJECTS) */
 const Online = { id: null, name: '', token: '', ver: 0, client: 'c' + Math.random().toString(36).slice(2, 10), pending: new Map(), inflight: new Set(), mine: new Map(),
   pushT: 0, pollT: 0, busy: false, pulling: false, state: 'off', err: '', loading: false, savedAt: '',
-  ws: null, live: false, people: [], retry: 0, retryT: 0, selSent: '', needPull: false, tick: 0, deleting: null };
+  ws: null, live: false, people: [], retry: 0, retryT: 0, selSent: '', needPull: false, tick: 0, deleting: null,
+  role: 'edit', hasView: false, forcedView: false };
 const kv = {
   db: null,
   open() { return this.db || (this.db = new Promise((res, rej) => { const r = indexedDB.open('patchplan', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); },
@@ -4362,6 +4525,7 @@ function updateSaveState() {
   el.classList.toggle('online', !!Online.id); el.classList.toggle('warn', Online.state === 'offline' || Online.state === 'auth');
   if (Online.id) {
     const n = Online.name || Online.id;
+    if (Online.role === 'view' && Online.state === 'ok') { el.textContent = `👁 ${n} · view only${Online.live ? ' · live' : ''}`; el.title = 'You opened this online project with the view-only password: you see every change live but cannot edit.'; const st = $('#stOnline'); st.hidden = false; st.textContent = el.textContent; st.title = el.title; st.classList.remove('warn'); return; }
     el.textContent = Online.state === 'saving' ? `☁ ${n} · saving…` : Online.state === 'offline' ? `⚠ ${n} · offline — changes kept, retrying` : Online.state === 'auth' ? `🔒 ${n} · password needed` : `☁ ${n} · saved online${Online.savedAt ? ' ' + Online.savedAt : ''}${Online.live ? ' · live' : ''}`;
     el.title = Online.state === 'offline' ? Online.err : `Online project — everyone with the link and password works on it. File › Share link / Work offline.`;
     const st = $('#stOnline'); st.hidden = false; st.textContent = el.textContent; st.title = el.title; st.classList.toggle('warn', el.classList.contains('warn'));
@@ -4591,17 +4755,18 @@ window.addEventListener('afterprint', () => { $('#print').innerHTML = ''; });
 /* =====================================================================
    15. VIEW MODE — read-only
    ===================================================================== */
-function setViewMode(on) {
+function setViewMode(on, { persist = true } = {}) {
   UI.viewMode = on;
   document.body.classList.toggle('viewmode', on);
   $('#btnView').classList.toggle('on', on);
   $('#stMode').hidden = !on; $('#stMode').textContent = '👁 View only — editing locked';
   $('#docName').disabled = on; $('#selRouting').disabled = on;
   $('#btnUndo').hidden = on; $('#btnRedo').hidden = on;
-  try { localStorage.setItem('patchplan.viewmode', on ? '1' : ''); } catch {}
+  if (persist) try { localStorage.setItem('patchplan.viewmode', on ? '1' : ''); } catch {}
+  if (Online.role === 'view' && Online.id) $('#stMode').textContent = '👁 View only — opened with the view-only password';
   renderSelection(); renderInspector();
 }
-$('#btnView').onclick = () => { setViewMode(!UI.viewMode); toast(UI.viewMode ? 'View only: editing is locked' : 'Editing enabled'); };
+$('#btnView').onclick = () => { if (Online.id && Online.role === 'view') { toast('You opened this online project with the view-only password — editing is not possible', 'warn', 3500); return; } setViewMode(!UI.viewMode); toast(UI.viewMode ? 'View only: editing is locked' : 'Editing enabled'); };
 
 /* File menu */
 const FILE_CMDS = {
@@ -4882,8 +5047,9 @@ async function onlineOpen(id, token, { remember = true } = {}) {
   const doc = sanitizeDoc(r.doc);
   Online.loading = true;
   try { Store.load(doc); } finally { Online.loading = false; }
-  Object.assign(Online, { id, token, name: r.name, ver: r.ver, state: 'ok', err: '', savedAt: '' });
+  Object.assign(Online, { id, token, name: r.name, ver: r.ver, state: 'ok', err: '', savedAt: '', role: r.role === 'view' ? 'view' : 'edit', hasView: !!r.hasView });
   Online.pending.clear(); Online.mine.clear(); Online.inflight.clear();
+  applyOnlineRole();
   saveCreds(id, { name: r.name, token: remember ? token : '', at: Date.now() });
   FileLink.handle = null; FileLink.dirty = false;
   history.replaceState(null, '', location.pathname + location.search + '#p=' + id);
@@ -4891,13 +5057,21 @@ async function onlineOpen(id, token, { remember = true } = {}) {
   clearInterval(Online.pollT); Online.pollT = setInterval(onlineTick, 1000);
   liveClose(); Online.retry = 0; liveConnect();
   updateSaveState(); renderPeople();
-  toast(`Online project “${r.name}” — changes are saved for everyone with the password`, '', 3500);
+  toast(Online.role === 'view' ? `Online project “${r.name}” — view only: you see every change live but cannot edit` : `Online project “${r.name}” — changes are saved for everyone with the password`, '', 3500);
+}
+/** View-only password -> the editor is locked (and unlocked again when leaving the project). */
+function applyOnlineRole() {
+  const view = !!Online.id && Online.role === 'view';
+  document.body.classList.toggle('online-view', view);
+  if (view) { Online.forcedView = true; setViewMode(true, { persist: false }); }
+  else if (Online.forcedView) { Online.forcedView = false; let keep = false; try { keep = localStorage.getItem('patchplan.viewmode') === '1'; } catch {} setViewMode(keep, { persist: false }); }
 }
 function onlineLeave(silent) {
   if (!Online.id) return;
   clearInterval(Online.pollT); clearTimeout(Online.pushT); liveClose();
   const n = Online.name;
-  Object.assign(Online, { id: null, token: '', name: '', state: 'off', err: '' }); Online.pending.clear();
+  Object.assign(Online, { id: null, token: '', name: '', state: 'off', err: '', role: 'edit', hasView: false }); Online.pending.clear();
+  applyOnlineRole();
   history.replaceState(null, '', location.pathname + location.search);
   updateSaveState(); renderPeople(); renderPeers();
   if (!silent) toast(`Left “${n}” — you are working on a local copy now (the online project is unchanged)`, '', 3500);
@@ -4906,7 +5080,7 @@ function onlineLeave(silent) {
 Store.on(ev => {
   if (!Online.id) return;
   if (ev.type === 'load') { if (!Online.loading) onlineLeave(); return; }   // opened another file / new project
-  if (ev.type === 'remote') return;
+  if (ev.type === 'remote' || Online.role === 'view') return;   // viewers never send anything
   for (const c of ev.changes || []) Online.pending.set(okey(c.coll, c.id), { coll: c.coll, id: c.id });
   if (!Online.pending.size) return;
   if (Online.state === 'ok') Online.state = 'saving';
@@ -4926,6 +5100,7 @@ async function onlinePush() {
     Online.savedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     if (r.warn) toast(r.warn, 'warn', 5000);
   } catch (e) {
+    if (e.status === 403) { Online.role = 'view'; applyOnlineRole(); Online.state = 'ok'; toast('This project is view only for you — your change was not saved', 'warn', 4000); onlinePull(); return; }
     for (const it of items) { const k = okey(it.coll, it.id); if (!Online.pending.has(k)) Online.pending.set(k, it); }
     onlineError(e);
   } finally {
@@ -5038,7 +5213,7 @@ function renderPeople() {
   if (!Online.id) { el.hidden = true; return; }
   const others = Online.people.filter(p => p.client !== Online.client);
   el.hidden = false;
-  el.innerHTML = `<i style="background:${myColor()}"></i>${esc(myName() || 'You')} (you)` + others.map(p => ` · <i style="background:${esc(p.color)}"></i>${esc(p.name)}`).join('') + (Online.live ? '' : ' · <em>connecting…</em>');
+  el.innerHTML = `<i style="background:${myColor()}"></i>${esc(myName() || 'You')} (you${Online.role === 'view' ? ', viewing' : ''})` + others.map(p => ` · <i style="background:${esc(p.color)}"></i>${esc(p.name)}${p.view ? ' 👁' : ''}`).join('') + (Online.live ? '' : ' · <em>connecting…</em>');
   el.title = `${others.length ? others.length + ' other' + (others.length === 1 ? '' : 's') + ' in this project now' : 'Nobody else is in this project right now'} — click to change your name`;
 }
 /** Outline what the others have selected, in their colour, with their name. */
@@ -5160,16 +5335,19 @@ async function onlinePutDialog() {
   const ok = await dialog({ title: '☁ Put this project online', ok: 'Put online',
     body: `<p class="hint">The project is stored online. Everyone who has the <b>link</b> and the <b>password</b> can open it and work on it with you — no account needed.</p>
       <label>Project name<input name="name" required maxlength="120" value="${esc(Store.main.name)}"></label>
-      ${pwFields('Project password')}
+      ${pwFields('Project password (to edit)')}
+      <label>View-only password (optional)<input type="password" name="vpw" minlength="6" autocomplete="new-password" placeholder="leave empty for none — people with it can only look"></label>
       ${nameField()}
-      <p class="hint">Send the password separately from the link (message, phone). You can change it later.</p>`,
+      <p class="hint">Send the password separately from the link (message, phone). You can change both later (File › Project passwords).</p>`,
     onOk: async v => {
       checkPw(v);
+      if (v.vpw && v.vpw.length < 6) throw new Error('The view-only password needs at least 6 characters');
+      if (v.vpw && v.vpw === v.pw) throw new Error('The view-only password must be different from the edit password');
       setMyName(v.me || myName() || 'Guest');
       const name = v.name.trim() || 'Untitled show';
       if (name !== Store.main.name) Store.transact('Rename project', () => Store.update('meta', 'main', { name }));
       let id, r;
-      for (let i = 0; i < 3; i++) { id = slugId(name); try { r = await api(id, 'create', { method: 'POST', body: { name, password: v.pw, doc: Store.doc } }); break; } catch (e) { if (e.status !== 409 || i === 2) throw e; } }
+      for (let i = 0; i < 3; i++) { id = slugId(name); try { r = await api(id, 'create', { method: 'POST', body: { name, password: v.pw, viewPassword: v.vpw || undefined, doc: Store.doc } }); break; } catch (e) { if (e.status !== 409 || i === 2) throw e; } }
       await onlineOpen(id, r.token);
       return id;
     } });
@@ -5181,7 +5359,10 @@ async function onlineShareDialog(fresh) {
   await dialog({ title: fresh ? '☁ Your project is online' : '☁ Share this project', ok: '', cancel: 'Close',
     body: `<p>Send this link to your team${fresh ? ' and tell them the password you just chose' : ''}:</p>
       <div class="dlg-link"><input readonly value="${esc(link)}" id="dlgLink"><button type="button" id="dlgCopy">Copy</button></div>
-      <p class="hint">They open the link, type the project password, and see and edit the same plan. Only people with the password get in. Change it any time with File › Change project password.</p>` });
+      <p class="hint">Same link for everyone — the password decides what they can do:</p>
+      <ul class="hint" style="margin:0 0 6px 18px;padding:0"><li><b>Project password</b> → they see and <b>edit</b> the same plan, live.</li>
+      <li><b>View-only password</b> → they see the plan live but <b>cannot change</b> anything.${Online.hasView ? '' : ` <i>(No view-only password set yet${ownerKey() ? ' — File › Project passwords' : ''}.)</i>`}</li></ul>
+      <p class="hint">Only people with a password get in. For an offline copy that opens locked, use File › Save view-only copy.</p>` });
 }
 document.addEventListener('click', async e => {
   if (e.target.id !== 'dlgCopy') return;
@@ -5224,7 +5405,7 @@ async function askProjectPassword(id, { again } = {}) {
   if (!info.exists) { toast('This online project does not exist (wrong link, or it was removed)', 'err', 6000); saveCreds(id, null); return; }
   if (!$('#dlg').hidden) return;
   await dialog({ title: '🔒 ' + (info.name || 'Online project'), ok: 'Open',
-    body: `<p class="hint">${again ? 'The project password was changed or your session ended — type the password again.' : 'This patch plan is protected. Type the project password to open it.'}</p>
+    body: `<p class="hint">${again ? 'The project password was changed or your session ended — type the password again.' : 'This patch plan is protected. Type the project password to open it (with the view-only password you can look but not edit).'}</p>
       <label>Project password<input type="password" name="pw" required autocomplete="current-password"></label>
       ${again && myName() ? '' : nameField()}
       <label class="chk"><input type="checkbox" name="remember" checked> Remember on this computer</label>`,
@@ -5239,13 +5420,20 @@ async function askProjectPassword(id, { again } = {}) {
 }
 async function onlinePassDialog() {
   if (!Online.id || UI.viewMode) return;
-  await dialog({ title: '☁ Change project password', ok: 'Change password',
-    body: `<p class="hint">Everyone else is signed out and has to type the new password. Tell your team the new one.</p>${pwFields('New password')}`,
+  await dialog({ title: '☁ Project passwords', ok: 'Save',
+    body: `<p class="hint">Fill in only what you want to change. A new password signs out the people who used the old one; tell them the new one.</p>
+      <label>New project password (to edit)<input type="password" name="pw" minlength="6" autocomplete="new-password" placeholder="leave empty to keep it"></label>
+      <label>Repeat it<input type="password" name="pw2" autocomplete="new-password"></label>
+      <label>${Online.hasView ? 'New view-only password' : 'View-only password (none yet)'}<input type="password" name="vpw" minlength="6" autocomplete="new-password" placeholder="${Online.hasView ? 'leave empty to keep it' : 'people with it can only look'}"></label>
+      ${Online.hasView ? '<label class="chk"><input type="checkbox" name="noview"> Remove the view-only password (viewers are signed out)</label>' : ''}`,
     onOk: async v => {
-      checkPw(v);
-      const r = await api(Online.id, 'password', { method: 'POST', body: { password: v.pw, client: Online.client }, token: Online.token });
-      Online.token = r.token; const c = onlineCreds()[Online.id]; if (c?.token) saveCreds(Online.id, { ...c, token: r.token });
-      toast('Password changed — tell your team the new one', '', 3000);
+      if (v.pw || v.pw2) checkPw(v);
+      if (v.vpw && v.vpw.length < 6) throw new Error('The view-only password needs at least 6 characters');
+      if (v.vpw && v.vpw === v.pw) throw new Error('The view-only password must be different from the edit password');
+      if (!v.pw && !v.vpw && !v.noview) throw new Error('Nothing to change');
+      const r = await api(Online.id, 'password', { method: 'POST', body: { password: v.pw || undefined, viewPassword: v.vpw || undefined, removeView: !!v.noview && !v.vpw, client: Online.client }, token: Online.token });
+      Online.token = r.token; Online.hasView = !!r.hasView; const c = onlineCreds()[Online.id]; if (c?.token) saveCreds(Online.id, { ...c, token: r.token });
+      toast(v.pw ? 'Password changed — tell your team the new one' : v.vpw ? 'View-only password set — send it with the link to people who should only look' : 'View-only password removed', '', 3500);
       return true;
     } });
 }
