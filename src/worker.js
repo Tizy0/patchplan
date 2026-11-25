@@ -7,7 +7,7 @@
  *   /api/p/<id>/doc       GET   (token)                -> {doc, ver, name, role, hasView}
  *   /api/p/<id>/changes   GET   ?since=ver (token)     -> {ver, changes:[{coll,id,after,ver,by}]}
  *   /api/p/<id>/changes   POST  {client, changes:[{coll,id,after}]} (token) -> {ver}
- *   /api/p/<id>/password  POST  {password?, viewPassword?, removeView?, client} (OWNER) -> {token}
+ *   /api/p/<id>/password  POST  {password?, viewPassword?, removeView?, private?, client} (OWNER) -> {token}
  *                         (a new edit password signs out the editors, a new view password the viewers)
  *   /api/p/<id>/delete    POST  (OWNER)                -> {ok}      (removes the online project)
  *   /api/owner/check      GET   (OWNER)                -> {ok}
@@ -16,8 +16,11 @@
  * OWNER = request carries the header x-owner-key matching the Worker secret OWNER_KEY.
  * Only the owner can create projects, change their passwords, delete them and list them;
  * the owner can also open any project without its password. Everyone else needs the
- * project password and can only open and edit the plan. A project can also have a second,
- * VIEW-ONLY password: people who log in with it see the plan (live) but every write is refused.
+ * project password and can only open and edit the plan.
+ * VIEWING: a project is public to view by default — anyone with the link sees the plan live
+ * without a password (role 'view', every write refused); the password is needed to EDIT.
+ * The owner can make a project private (password needed even to view). An optional
+ * view-only password (older builds) still works for private projects.
  *   /api/p/<id>/live      WebSocket: first message {type:'hello', token, client, name, color};
  *                         then the room pushes 'changes' / 'poke' / 'presence' / 'sel' messages.
  *
@@ -127,6 +130,7 @@ export class ProjectRoom extends DurableObject {
     if (!this.sql.exec('PRAGMA table_info(sess)').toArray().some(c => c.name === 'role')) this.sql.exec("ALTER TABLE sess ADD COLUMN role TEXT DEFAULT 'edit'");
   }
   get hasView() { return !!this.get('vhash'); }
+  get isPublic() { return this.get('private') !== '1'; }
   get(k) { return this.sql.exec('SELECT v FROM meta WHERE k = ?', k).toArray()[0]?.v ?? null; }
   set(k, v) { this.sql.exec('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)', k, String(v)); }
   get exists() { return this.get('hash') != null; }
@@ -136,15 +140,16 @@ export class ProjectRoom extends DurableObject {
     const url = new URL(req.url), action = url.pathname.slice(1), owner = req.headers.get('x-owner') === '1';
     try {
       if (action === 'live') return this.live(req);
-      if (action === 'info') return json({ exists: this.exists, name: this.exists ? this.get('name') : null });
+      if (action === 'info') return json({ exists: this.exists, name: this.exists ? this.get('name') : null, public: this.exists ? this.isPublic : null });
       if (action === 'create' && req.method === 'POST') return owner ? await this.create(await req.json()) : json({ error: 'Only the owner can put projects online' }, 403);
       if (action === 'login' && req.method === 'POST') return await this.login(await req.json(), owner);
       if (!this.exists) return json({ error: 'This online project does not exist' }, 404);
       if (action === 'delete' && req.method === 'POST') return owner ? await this.remove() : json({ error: 'Only the owner can delete a project' }, 403);
       if (action === 'password' && req.method === 'POST') return owner ? await this.changePassword(await req.json()) : json({ error: 'Only the owner can change the project password' }, 403);
-      const role = await this.tokenOk((req.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''));
+      const tok = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+      const role = (await this.tokenOk(tok)) || (!tok && this.isPublic ? 'view' : null);   // no password: view a public project
       if (!role) return json({ error: 'Password needed', auth: true }, 401);
-      if (action === 'doc' && req.method === 'GET') return json({ doc: this.readDoc(), ver: this.ver, name: this.get('name'), role, hasView: this.hasView });
+      if (action === 'doc' && req.method === 'GET') return json({ doc: this.readDoc(), ver: this.ver, name: this.get('name'), role, hasView: this.hasView, public: this.isPublic });
       if (action === 'changes' && req.method === 'GET') return json({ ...this.since(+url.searchParams.get('since') || 0), role });
       if (action === 'changes' && req.method === 'POST') return role === 'edit' ? this.write(await req.json()) : json({ error: 'View only — you cannot change this project', viewOnly: true }, 403);
       return json({ error: 'Not found' }, 404);
@@ -199,6 +204,7 @@ export class ProjectRoom extends DurableObject {
     const name = clean(b.name || 'Untitled show', 120);
     await this.setPassword(b.password);
     if (b.viewPassword) await this.setPassword(b.viewPassword, 'view');
+    this.set('private', b.private ? '1' : '0');
     this.set('name', name); this.set('created', new Date().toISOString()); this.set('ver', 0); this.set('fails', 0);
     if (b.doc && typeof b.doc === 'object') {
       const changes = [];
@@ -216,18 +222,20 @@ export class ProjectRoom extends DurableObject {
   }
   async changePassword(b) {
     const pw = b.password || '', vpw = b.viewPassword || '';
-    if (!pw && !vpw && !b.removeView) return json({ error: 'Nothing to change' }, 400);
+    const priv = typeof b.private === 'boolean' && b.private !== !this.isPublic ? b.private : null;
+    if (!pw && !vpw && !b.removeView && priv == null) return json({ error: 'Nothing to change' }, 400);
     if (pw && !pwOk(pw)) return json({ error: 'The password needs at least 6 characters' }, 400);
     if (vpw && !pwOk(vpw)) return json({ error: 'The view-only password needs at least 6 characters' }, 400);
     if (vpw && (vpw === pw || (!pw && await this.matches(vpw, 'edit')))) return json({ error: 'The view-only password must be different from the edit password' }, 400);
     if (pw && !vpw && !b.removeView && await this.matches(pw, 'view')) return json({ error: 'The edit password must be different from the view-only password' }, 400);
     const out = new Set();
+    if (priv != null) { this.set('private', priv ? '1' : '0'); if (priv) out.add('public'); }
     if (pw) { await this.setPassword(pw, 'edit'); out.add('edit'); }
     if (vpw) { await this.setPassword(vpw, 'view'); out.add('view'); }
     else if (b.removeView && this.hasView) { this.set('vhash', ''); this.set('vsalt', ''); this.sql.exec("DELETE FROM sess WHERE role = 'view'"); out.add('view'); }
     const client = clean(b.client, 40);
-    for (const ws of this.ctx.getWebSockets()) { const a = ws.deserializeAttachment(); if (a?.client !== client && out.has(a?.role || 'edit')) try { ws.close(4001, 'Password changed'); } catch {} }
-    return json({ token: await this.newToken('edit'), hasView: this.hasView });
+    for (const ws of this.ctx.getWebSockets()) { const a = ws.deserializeAttachment(); if (a?.client !== client && (out.has(a?.role || 'edit') || (out.has('public') && a?.anon))) try { ws.close(4001, 'Password changed'); } catch {} }
+    return json({ token: await this.newToken('edit'), hasView: this.hasView, public: this.isPublic });
   }
   async remove() {
     for (const ws of this.ctx.getWebSockets()) try { ws.close(4004, 'Project deleted'); } catch {}
@@ -298,9 +306,11 @@ export class ProjectRoom extends DurableObject {
     let m; try { m = JSON.parse(data); } catch { return; }
     const a = ws.deserializeAttachment() || {};
     if (!a.auth) {
-      const role = m.type === 'hello' && this.exists ? await this.tokenOk(m.token) : null;
+      const tokRole = m.type === 'hello' && this.exists ? await this.tokenOk(m.token) : null;
+      const anon = !tokRole && m.type === 'hello' && this.exists && !m.token && this.isPublic;
+      const role = tokRole || (anon ? 'view' : null);
       if (!role) { try { ws.close(this.exists ? 4001 : 4004, 'Password needed'); } catch {} return; }
-      const me = { auth: true, role, client: clean(m.client, 40), name: clean(m.name, 40) || 'Guest', color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#888888', sel: [] };
+      const me = { auth: true, role, anon, client: clean(m.client, 40), name: clean(m.name, 40) || 'Guest', color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#888888', sel: [] };
       ws.serializeAttachment(me);
       ws.send(JSON.stringify({ type: 'welcome', ver: this.ver, people: this.people() }));
       this.broadcast(JSON.stringify({ type: 'presence', people: this.people(), joined: me.name }), ws);
