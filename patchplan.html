@@ -446,6 +446,18 @@ body.no-lytags .ly-tag{display:none}
 .dr-head input#tblFilter{width:170px;flex:0 1 170px}
 .dr-head select{width:auto;max-width:150px}
 .dr-head #tblSummary{white-space:nowrap}
+#tblLayers{white-space:nowrap;flex:none}
+#tblLayers.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);font-weight:600}
+#tblLyMenu{position:fixed;display:block;right:auto;z-index:60;min-width:230px;max-height:60vh;overflow:auto}
+#tblLyMenu[hidden]{display:none}
+#tblLyMenu .ctx-h{font-size:11px;color:var(--muted);padding:4px 10px 2px}
+#tblLyMenu hr{border:0;border-top:1px solid var(--border);margin:4px 2px}
+#tblLyMenu .tly-row{display:flex;align-items:center;gap:8px;padding:3px 6px 3px 10px;border-radius:6px;color:var(--text);font-size:13px;cursor:pointer}
+#tblLyMenu .tly-row:hover{background:var(--panel2)}
+#tblLyMenu .tly-row i{width:10px;height:10px;border-radius:50%;flex:none}
+#tblLyMenu .tly-row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tblLyMenu .tly-row button{width:auto;min-height:22px;padding:0 7px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--panel);color:var(--muted)}
+#tblLyMenu .tly-row button:hover{color:var(--accent);border-color:var(--accent)}
 .tabs{display:flex;gap:2px;background:var(--panel2);border-radius:7px;padding:2px}
 .tabs button{border:0;background:none;min-height:28px}
 .tabs button.on{background:var(--panel);box-shadow:var(--shadow)}
@@ -623,6 +635,7 @@ body.viewmode .edit-only{display:none!important}
         <div class="tabs"><button data-tab="cables" class="on">Cables</button><button data-tab="ports">Port usage</button><button data-tab="devices">Devices</button><button data-tab="qty" title="How many of each device, total power, cable totals">Quantities</button></div>
         <input id="tblFilter" placeholder="Filter (ID, device, port, notes…)">
         <select id="tblType"></select>
+        <button id="tblLayers" title="Show only the cables, ports and devices of some layers">Layers: all ▾</button>
         <label class="chk"><input type="checkbox" id="tblProblems"> Problems only</label>
         <span class="grow" style="flex:1"></span>
         <span id="tblSummary" class="hint"></span>
@@ -637,6 +650,7 @@ body.viewmode .edit-only{display:none!important}
   <aside id="inspector"></aside>
 </div>
 <div id="print"></div>
+<div id="tblLyMenu" class="menu-list" hidden></div>
 <div id="dlg" class="modal" hidden><div class="modal-card dlg-card"></div></div>
 <div id="help" class="modal" hidden>
   <div class="modal-card">
@@ -675,6 +689,7 @@ body.viewmode .edit-only{display:none!important}
         <li><b>☰ Lists</b> (C): cables, port usage, devices, quantities.</li>
         <li>Tick rows (or the header box for all shown) and change them all in the right panel.</li>
         <li><b>Quantities</b>: how many of each device, total power and amps, cable metres per type / connector / length.</li>
+        <li><b>Layers ▾</b> in the list bar shows only one layer (or a few): its cables, ports, devices and quantities.</li>
         <li><b>CSV</b> exports what you see.</li></ul></section>
       <section><h4>7 · Save &amp; share</h4><ul>
         <li>The project autosaves in this browser. <b>Ctrl+S</b> saves a .json file — that file is the project.</li>
@@ -755,9 +770,13 @@ body.viewmode .edit-only{display:none!important}
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 /* ----- Build number: bump on every new build so everyone knows which version they run ----- */
-const BUILD = { n: 26, date: '2026-11-25' };
+const BUILD = { n: 27, date: '2026-11-25' };
 /* [build, one-line summary, details, date] — add a new entry at the top for every build */
 const BUILD_NOTES = [
+  [27, 'Lists filtered by layer', [
+    'Lists › “Layers” button: show the cables, ports, devices and quantities of one layer, several layers or all of them (“only” picks a single layer; “Layers shown on the plan” follows the eye buttons).',
+    'A cable belongs to a layer when one of its ends is on a device of that layer — so one layer’s list has every cable you need for it.',
+    'The cable list has a new Layer column; CSV export and “select all rows” follow the filter.'], '2026-11-25'],
   [26, 'The link is for viewing — the password is for editing', [
     'Anyone who opens a project link can view the plan right away (live, nothing can be changed) — just click “👁 Just view”.',
     'To edit, type the project password: when opening the link, or later with the “🔑 Edit” button at the top (or the bottom bar).',
@@ -4224,7 +4243,17 @@ window.addEventListener('blur', () => { UI.spaceDown = false; svg.classList.remo
    12. LISTS — cable list & port usage (bottom drawer)
    ===================================================================== */
 const TBL = { open: false, tab: 'cables', sort: { cables: ['code', 1], ports: ['dev', 1], devices: ['name', 1] }, filter: '', type: '', problems: false,
-  portSel: new Set(), anchor: null, qGroup: 'type', cGroup: 'type' };
+  portSel: new Set(), anchor: null, qGroup: 'type', cGroup: 'type', layers: null };   // layers: null = all, else Set of layer ids
+/** Is the list filtered by layer? (drops layers that no longer exist) */
+function tblLayerOn() {
+  if (!TBL.layers) return false;
+  for (const id of [...TBL.layers]) if (!Store.doc.layers[id]) TBL.layers.delete(id);
+  if (TBL.layers.size >= Object.keys(Store.doc.layers).length) { TBL.layers = null; return false; }
+  return true;
+}
+const devInTbl = d => !tblLayerOn() || (!!d && TBL.layers.has(layerOf(d)));
+/** A cable is on a layer when one of its ends is on a device of that layer. */
+const cableInTbl = c => !tblLayerOn() || [c.from.dev, c.to.dev].some(id => { const d = Store.doc.devices[id]; return d && TBL.layers.has(layerOf(d)); });
 const DEVICE_COLS = [['name', 'Device'], ['dtype', 'Type'], ['layer', 'Layer'], ['ports', 'Ports'], ['used', 'Connected'], ['power', 'Power (W)'], ['notes', 'Notes']];
 const tabCols = () => (TBL.tab === 'cables' ? CABLE_COLS : TBL.tab === 'ports' ? PORT_COLS : DEVICE_COLS);
 const powerOf = d => (d.power === '' || d.power == null || isNaN(+d.power) ? null : +d.power);
@@ -4232,14 +4261,15 @@ const fmtW = w => (w >= 1000 ? (Math.round(w / 10) / 100).toLocaleString() + ' k
 const baseName = n => String(n ?? '').replace(/[\s\-_#.]*\d+$/, '').trim() || String(n ?? '');
 function deviceRows() {
   const idx = getPortIndex();
-  return Object.values(Store.doc.devices).map(d => ({ id: d.id, name: d.name, dtype: d.dtype || '', layer: Store.doc.layers[layerOf(d)]?.name || '',
+  return Object.values(Store.doc.devices).filter(devInTbl).map(d => ({ id: d.id, name: d.name, dtype: d.dtype || '', layer: Store.doc.layers[layerOf(d)]?.name || '',
     ports: d.ports.length, used: d.ports.filter(p => (idx.get(d.id + '|' + p.id) || []).length).length,
     power: powerOf(d) ?? '', notes: d.notes || '', color: d.color }));
 }
 /** Equipment list: devices grouped by type / name, with quantity and power. */
-function qtyDevRows(mode = TBL.qGroup) {
+function qtyDevRows(mode = TBL.qGroup, all = false) {
   const m = new Map();
   for (const d of Object.values(Store.doc.devices)) {
+    if (!all && !devInTbl(d)) continue;
     const k = mode === 'name' ? d.name : mode === 'base' ? baseName(d.name) : (d.dtype || baseName(d.name));
     const g = m.get(k) || m.set(k, { key: k, ids: [], types: new Set(), color: d.color }).get(k);
     g.ids.push(d.id); if (d.dtype) g.types.add(d.dtype);
@@ -4251,9 +4281,10 @@ function qtyDevRows(mode = TBL.qGroup) {
   }).sort((a, b) => natCmp(a.key, b.key));
 }
 /** Cable totals: grouped by type, type + connector, or type + connector + length (a stock / pull list). */
-function qtyCabRows(mode = TBL.cGroup) {
+function qtyCabRows(mode = TBL.cGroup, all = false) {
   const m = new Map(), order = sigKeys();
   for (const c of Object.values(Store.doc.cables)) {
+    if (!all && !cableInTbl(c)) continue;
     const len = c.length === '' || c.length == null || isNaN(+c.length) ? null : +c.length, con = c.connector || '';
     const k = mode === 'type' ? c.type : mode === 'conn' ? c.type + '|' + con : c.type + '|' + con + '|' + (len ?? '');
     const g = m.get(k) || m.set(k, { key: k, type: c.type, typeLabel: sigOf(c.type).label, color: sigOf(c.type).color, connector: mode === 'type' ? '' : con, len: mode === 'stock' ? len : null, ids: [], total: 0, missing: 0 }).get(k);
@@ -4262,16 +4293,17 @@ function qtyCabRows(mode = TBL.cGroup) {
   return [...m.values()].map(g => ({ ...g, qty: g.ids.length, total: Math.round(g.total * 10) / 10 }))
     .sort((a, b) => (order.indexOf(a.type) - order.indexOf(b.type)) || natCmp(a.connector, b.connector) || ((a.len ?? 1e9) - (b.len ?? 1e9)));
 }
-const CABLE_COLS = [['code', 'ID'], ['typeLabel', 'Type'], ['fromDev', 'From device'], ['fromPort', 'From port'], ['toDev', 'To device'], ['toPort', 'To port'], ['length', 'Length (m)'], ['connector', 'Connector'], ['label', 'Label'], ['via', 'Multicore'], ['notes', 'Notes']];
+const CABLE_COLS = [['code', 'ID'], ['typeLabel', 'Type'], ['fromDev', 'From device'], ['fromPort', 'From port'], ['toDev', 'To device'], ['toPort', 'To port'], ['length', 'Length (m)'], ['connector', 'Connector'], ['label', 'Label'], ['via', 'Multicore'], ['layer', 'Layer'], ['notes', 'Notes']];
 const PORT_COLS = [['dev', 'Device'], ['port', 'Port'], ['dir', 'Dir'], ['typeLabel', 'Type'], ['count', 'Cables'], ['status', 'Status'], ['cables', 'Cable IDs'], ['comment', 'Comment']];
 const STATUS_TXT = { unused: 'unconnected', multi: 'more than 1 cable', ok: 'ok' };
 function cableRows() {
   const d = Store.doc;
-  return Object.values(d.cables).map(c => {
+  return Object.values(d.cables).filter(cableInTbl).map(c => {
     const fp = findPort(c.from), tp = findPort(c.to);
+    const lys = [...new Set([c.from.dev, c.to.dev].map(id => d.devices[id]).filter(Boolean).map(x => d.layers[layerOf(x)]?.name || ''))];
     return { id: c.id, code: c.code, type: c.type, typeLabel: sigOf(c.type).label, color: cableColor(c),
       fromDev: d.devices[c.from.dev]?.name || '?', fromPort: fp?.label || '?', toDev: d.devices[c.to.dev]?.name || '?', toPort: tp?.label || '?',
-      length: c.length === '' || c.length == null ? '' : +c.length, connector: c.connector || '', label: c.label || '', notes: c.notes || '',
+      length: c.length === '' || c.length == null ? '' : +c.length, connector: c.connector || '', label: c.label || '', notes: c.notes || '', layer: lys.join(' ↔ '),
       via: c.mc ? `${c.mc.channels.length} ch` : [[c.from, fp], [c.to, tp]].map(([ref, p]) => { if (p?.ch == null) return ''; const t = trunkOf(d.devices[ref.dev]); return t ? `${t.code} ch ${p.ch + 1}` : ''; }).filter(Boolean).join(', '),
       warn: Ops.connectionWarnings(c.from, c.to, c.id) };
   });
@@ -4279,6 +4311,7 @@ function cableRows() {
 function portRows() {
   const idx = getPortIndex(), rows = [];
   for (const dev of Object.values(Store.doc.devices)) for (const p of dev.ports) {
+    if (!devInTbl(dev)) break;
     const cids = idx.get(dev.id + '|' + p.id) || [];
     rows.push({ devId: dev.id, portId: p.id, dev: dev.name, port: p.label, dir: DIRS[p.dir], type: p.type, typeLabel: sigOf(p.type).label,
       color: portColor(p), count: cids.length, status: cids.length === 0 ? 'unused' : cids.length > 1 ? 'multi' : 'ok',
@@ -4310,8 +4343,46 @@ function tblApply(keys) {
   if (TBL.tab === 'ports') { TBL.portSel = new Set(keys); renderTable(); return; }
   setChain(null); setSelection(keys); renderTable();
 }
+function tblLayersLabel() {
+  const b = $('#tblLayers'), on = tblLayerOn();
+  b.classList.toggle('on', on);
+  b.hidden = Object.keys(Store.doc.layers).length < 2 && !on;
+  b.textContent = !on ? 'Layers: all ▾' : TBL.layers.size === 0 ? 'Layers: none ▾' : TBL.layers.size === 1 ? `Layer: ${Store.doc.layers[[...TBL.layers][0]]?.name || '?'} ▾` : `Layers: ${TBL.layers.size} of ${Object.keys(Store.doc.layers).length} ▾`;
+}
+function renderTblLyMenu() {
+  const m = $('#tblLyMenu'), on = tblLayerOn();
+  m.innerHTML = `<div class="ctx-h">Show in the lists</div>
+    <button data-tly="all"><span>${on ? '' : '✓ '}All layers</span></button>
+    ${UI.hiddenLayers.size ? '<button data-tly="plan"><span>Layers shown on the plan</span></button>' : ''}<hr>`
+    + sortedLayers().reverse().map(l => `<label class="tly-row"><input type="checkbox" data-tly-id="${l.id}"${!on || TBL.layers.has(l.id) ? ' checked' : ''}><i style="background:${layerColor(l.id)}"></i><span>${esc(l.name)}</span><button type="button" data-tly-only="${l.id}" title="Only this layer">only</button></label>`).join('');
+}
+function setTblLayers(set) { TBL.layers = set; tblLayerOn(); if (TBL.tab === 'ports') TBL.portSel.clear(); renderTable(); if (!$('#tblLyMenu').hidden) renderTblLyMenu(); }
+$('#tblLayers').addEventListener('click', e => {
+  e.stopPropagation();
+  const m = $('#tblLyMenu');
+  if (!m.hidden) { m.hidden = true; return; }
+  renderTblLyMenu(); m.hidden = false;
+  const r = $('#tblLayers').getBoundingClientRect(), mr = m.getBoundingClientRect();
+  m.style.left = Math.max(4, Math.min(r.left, innerWidth - mr.width - 6)) + 'px';
+  m.style.top = Math.max(4, r.top - mr.height - 4) + 'px';   // the drawer sits at the bottom: open upwards
+});
+$('#tblLyMenu').addEventListener('click', e => {
+  const only = e.target.closest('[data-tly-only]');
+  if (only) { e.preventDefault(); setTblLayers(new Set([only.dataset.tlyOnly])); return; }
+  const b = e.target.closest('[data-tly]');
+  if (b?.dataset.tly === 'all') setTblLayers(null);
+  else if (b?.dataset.tly === 'plan') setTblLayers(new Set(Object.keys(Store.doc.layers).filter(id => !UI.hiddenLayers.has(id))));
+});
+$('#tblLyMenu').addEventListener('change', e => {
+  const id = e.target.dataset.tlyId; if (!id) return;
+  const set = tblLayerOn() ? new Set(TBL.layers) : new Set(Object.keys(Store.doc.layers));
+  e.target.checked ? set.add(id) : set.delete(id);
+  setTblLayers(set);
+});
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#tblLyMenu') && !e.target.closest('#tblLayers')) $('#tblLyMenu').hidden = true; });
 function renderTable() {
-  if (!TBL.open) return;
+  if (!TBL.open) { $('#tblLyMenu').hidden = true; return; }
+  tblLayersLabel();
   const tab = TBL.tab, qty = tab === 'qty';
   $('#tbl').hidden = qty; $('#qty').hidden = !qty;
   $('#tblType').style.display = $('#tblProblems').parentElement.style.display = tab === 'devices' || qty ? 'none' : '';
@@ -4427,7 +4498,7 @@ function csvText(cols, rows) {
 }
 function exportCSV(tab, rows) {
   const isC = tab === 'cables';
-  rows = rows || sortRows(isC ? cableRows() : portRows(), isC ? 'code' : 'dev', 1);
+  if (!rows) { const keep = TBL.layers; TBL.layers = null; try { rows = sortRows(isC ? cableRows() : portRows(), isC ? 'code' : 'dev', 1); } finally { TBL.layers = keep; } }
   download(`${fileSlug()}-${isC ? 'cables' : 'ports'}.csv`, csvText(isC ? [...CABLE_COLS, ['warnText', 'Warnings']] : PORT_COLS,
     isC ? rows.map(r => ({ ...r, warnText: r.warn.join(' | ') })) : rows), 'text/csv;charset=utf-8');
 }
@@ -4781,7 +4852,7 @@ function buildPrintLayout() {
     <div class="pmeta">Patch plan · printed ${new Date().toLocaleString()} · ${Object.keys(Store.doc.devices).length} devices · ${rows.length} cables · ${Math.round(total * 10) / 10} m of cable</div>
     <div class="pdrawing">${r ? r.svg : '<p>(empty drawing)</p>'}</div>
     <h2>Legend</h2><div class="plegend">${legend}</div>
-    ${(() => { const dr = qtyDevRows(), cr = qtyCabRows(), V = +Store.main.voltage || 230, W = dr.reduce((a, x) => a + x.total, 0), st = TBL.cGroup === 'stock';
+    ${(() => { const dr = qtyDevRows(undefined, true), cr = qtyCabRows(undefined, true), V = +Store.main.voltage || 230, W = dr.reduce((a, x) => a + x.total, 0), st = TBL.cGroup === 'stock';
       return `<h2>Equipment list</h2><table><thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Power each (W)</th><th>Total power</th></tr></thead><tbody>
       ${dr.map(x => `<tr><td>${esc(x.key)}</td><td>${esc(x.type)}</td><td>${x.qty}</td><td>${esc(x.each)}</td><td>${x.total ? fmtW(x.total) : ''}</td></tr>`).join('')}
       <tr><th>Total</th><th></th><th>${dr.reduce((a, x) => a + x.qty, 0)}</th><th></th><th>${fmtW(W)} · ${(W / V).toFixed(1)} A at ${V} V</th></tr></tbody></table>
